@@ -42,9 +42,8 @@ jobs:
       - name: 安装 Android 构建工具
         if: steps.assets.outputs.has_apk == 'true'
         uses: android-actions/setup-android@v3
-      - name: 安装 APK 校验工具
-        if: steps.assets.outputs.has_apk == 'true'
-        run: sdkmanager "build-tools;35.0.0"
+        with:
+          packages: 'build-tools;35.0.0'
       - name: 下载 Release APK
         if: steps.assets.outputs.has_apk == 'true'
         env:
