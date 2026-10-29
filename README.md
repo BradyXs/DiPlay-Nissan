@@ -1,12 +1,17 @@
 # NiPlay
 
-[简体中文](README.zh-CN.md) · [English](README.md)
+NiPlay 基于 [DiPlay](https://github.com/shihabal3amri/DiPlay) 和 [DiPlay-Legacy-Android](https://github.com/programmerguohuajing/DiPlay-Legacy-Android)，专门为**日产 Android 4.4.3 车机**定制开发。当前主要适配 **2019 款日产逍客的 ARMv7 车机**，支持无线及 USB CarPlay 连接、本机音视频播放、方向盘媒体按键和诊断日志导出。其他车机的兼容性尚未验证。
 
-NiPlay is a CarPlay receiver developed specifically for **Nissan head units running Android 4.4.3**, based on [DiPlay](https://github.com/shihabal3amri/DiPlay) and [DiPlay-Legacy-Android](https://github.com/programmerguohuajing/DiPlay-Legacy-Android). Its current target is the **ARMv7 head unit in the 2019 Nissan Qashqai**. It supports wireless and USB CarPlay connections, local audio and video playback, steering-wheel media controls, and diagnostic report export. Compatibility with other head units has not been established.
+## 版本与下载
 
-## Build
+- [GitHub Releases](https://github.com/BradyXs/NiPlay/releases) 提供版本说明和源码归档。
+- [项目页面](https://bradyxs.github.io/NiPlay/) 介绍适配范围、安装和构建方式。
 
-Install the JDK, Android SDK and NDK listed in the [build guide](docs/BUILD.md). A source-only APK can be built with:
+公开仓库不包含 MFi 认证材料或 Android 签名私钥。目前的公开 Release **不提供可独立连接 CarPlay 的 APK**。如需自行构建，请使用自己有权使用的认证材料；不要把材料或包含材料的 APK 上传到公开仓库。已有安装的覆盖升级还要求包名与签名证书一致。
+
+## 构建
+
+先安装[构建指南](docs/BUILD.md)列出的 JDK、Android SDK 和 NDK。构建不含认证材料的源码包：
 
 ```sh
 ANDROID_HOME=/path/to/Android/Sdk sh ./gradlew \
@@ -15,10 +20,10 @@ ANDROID_HOME=/path/to/Android/Sdk sh ./gradlew \
   :mobile:assembleDebug
 ```
 
-A standalone CarPlay APK also needs locally supplied authentication assets; they are not included in this repository. See the [build guide](docs/BUILD.md) and [installation guide](docs/INSTALL.md). Never commit private keys, signing credentials or exported diagnostic reports.
+可独立连接 CarPlay 的安装包需要自行提供本地认证材料，仓库不包含这些文件。具体步骤见[构建指南](docs/BUILD.md)和[安装说明](docs/INSTALL.md)。不要提交私钥、签名凭据或导出的诊断日志。
 
-## Acknowledgements and licenses
+## 致谢与许可
 
-Thanks to [DiPlay](https://github.com/shihabal3amri/DiPlay) and [DiPlay-Legacy-Android](https://github.com/programmerguohuajing/DiPlay-Legacy-Android) for the open-source work this project builds upon. Thanks also to [xcertplay](https://github.com/shilapi/xcertplay) for the receiver foundation. The settings interface includes work adapted from [DiAuto](https://github.com/shihabal3amri/DiAuto).
+感谢 [DiPlay](https://github.com/shihabal3amri/DiPlay) 和 [DiPlay-Legacy-Android](https://github.com/programmerguohuajing/DiPlay-Legacy-Android) 的开源工作，本项目在此基础上开发；也感谢 [xcertplay](https://github.com/shilapi/xcertplay) 提供接收端基础。设置界面包含改编自 [DiAuto](https://github.com/shihabal3amri/DiAuto) 的内容。
 
-Keep the original copyright and license notices when redistributing. See [LICENSE](LICENSE), the [third-party notices](docs/THIRD_PARTY_NOTICES.md) and the preserved [upstream README](docs/UPSTREAM-README.md). CarPlay is an Apple trademark; NiPlay is independent and is not Apple-certified.
+再分发时请保留原有版权及许可声明。详见 [LICENSE](LICENSE)、[第三方声明](docs/THIRD_PARTY_NOTICES.md)和保留的[上游说明](docs/UPSTREAM-README.zh-CN.md)。CarPlay 是 Apple 的商标；NiPlay 是独立项目，未获 Apple 认证。

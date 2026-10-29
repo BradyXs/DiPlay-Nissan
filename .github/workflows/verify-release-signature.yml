@@ -1,4 +1,4 @@
-﻿name: Verify DiPlay Release Signature
+name: Verify NiPlay release APK signature
 
 on:
   release:
@@ -21,7 +21,25 @@ jobs:
         uses: android-actions/setup-android@v3
       - name: Install APK signer
         run: sdkmanager "build-tools;35.0.0"
-      - name: Download release APK
+      - name: 检查 Release 中的 APK 数量
+        id: assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          count=$(gh release view "$TAG" --repo "$REPOSITORY" --json assets --jq '[.assets[].name | select(endswith(".apk"))] | length')
+          if [ "$count" -gt 1 ]; then
+            echo "::error::Expected at most one release APK, got $count"
+            exit 1
+          fi
+          echo "has_apk=$([ "$count" -eq 1 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          if [ "$count" -eq 0 ]; then
+            echo "Source-only release; no APK signature to verify."
+          fi
+      - name: 下载 Release APK
+        if: steps.assets.outputs.has_apk == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
@@ -29,12 +47,8 @@ jobs:
         run: |
           mkdir -p release-apk
           gh release download "$TAG" --repo "$REPOSITORY" --pattern '*.apk' --dir release-apk
-          count=$(find release-apk -maxdepth 1 -type f -name '*.apk' | wc -l)
-          if [ "$count" -ne 1 ]; then
-            echo "::error::Expected exactly one release APK, got $count"
-            exit 1
-          fi
       - name: Verify signature against v0.2.21 identity
+        if: steps.assets.outputs.has_apk == 'true'
         env:
           EXPECTED_SHA256: bca015c0cb43469fee55539b4054ff862671e7b41e6612eee0cb8566d327b7ae
         run: |

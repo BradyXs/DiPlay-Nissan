@@ -38,6 +38,6 @@ SpeexDSP uses a BSD-style three-clause license. The full copyright notices, redi
 
 The source repository does not include accessory authentication keys or Android APK-signing keys. A standalone build requires explicit, locally supplied authentication assets. Any such assets packaged in an APK can be extracted from that APK and are not relicensed by this project. Use and distribute only assets you are authorized to use.
 
-## Download website
+## Project website
 
-The static site layout, CSS and generator adapt DiAuto (AGPL-3.0). The AGPL license text is included with the source.
+The NiPlay project page uses its own simplified Chinese layout and stylesheet. The original DiAuto attribution for the app settings interface remains above.

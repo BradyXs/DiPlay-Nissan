@@ -1,0 +1,50 @@
+name: Publish source release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 已存在的版本标签，例如 v0.2.62
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+      - name: 检查标签与应用版本
+        id: version
+        env:
+          RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          version=$(sed -nE 's/^[[:space:]]*versionName = "([^"]+)".*/\1/p' mobile/build.gradle.kts | head -1)
+          test -n "$version"
+          test "$RELEASE_TAG" = "v$version"
+          git rev-parse -q --verify "refs/tags/$RELEASE_TAG"
+          echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+      - name: 发布源码版本
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $RELEASE_TAG already exists."
+            exit 0
+          fi
+          notes=".github/release-notes/$RELEASE_TAG.md"
+          if test ! -f "$notes"; then
+            notes="$RUNNER_TEMP/release-notes.md"
+            printf '%s\n' '本次为源码发布。公开仓库不包含 MFi 认证材料与 Android 签名私钥，因此没有可独立连接 CarPlay 的公开 APK。请参阅仓库中的构建指南。' > "$notes"
+          fi
+          gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --verify-tag \
+            --title "NiPlay $RELEASE_TAG（源码发布）" --notes-file "$notes"
