@@ -1,4 +1,4 @@
-name: Publish source release
+name: Publish NiPlay release
 
 on:
   push:
@@ -31,7 +31,7 @@ jobs:
           test "$RELEASE_TAG" = "v$version"
           git rev-parse -q --verify "refs/tags/$RELEASE_TAG"
           echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
-      - name: 发布源码版本
+      - name: 发布版本
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ steps.version.outputs.tag }}
@@ -44,7 +44,7 @@ jobs:
           notes=".github/release-notes/$RELEASE_TAG.md"
           if test ! -f "$notes"; then
             notes="$RUNNER_TEMP/release-notes.md"
-            printf '%s\n' '本次为源码发布。公开仓库不包含 MFi 认证材料与 Android 签名私钥，因此没有可独立连接 CarPlay 的公开 APK。请参阅仓库中的构建指南。' > "$notes"
+            printf '%s\n' '版本已创建。安装包需在本地使用授权的认证材料构建、验证后上传；上传前本页面仅提供源码归档。' > "$notes"
           fi
           gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --verify-tag \
-            --title "NiPlay $RELEASE_TAG（源码发布）" --notes-file "$notes"
+            --title "NiPlay $RELEASE_TAG" --notes-file "$notes"
