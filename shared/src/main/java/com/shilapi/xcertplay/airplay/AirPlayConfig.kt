@@ -1,0 +1,96 @@
+package com.shilapi.xcertplay.airplay
+
+/** Display insets in pixels, used for CarPlay viewArea and safeArea declarations. */
+data class AirPlayInsets(
+    val top: Int = 0,
+    val bottom: Int = 0,
+    val left: Int = 0,
+    val right: Int = 0,
+)
+
+/** One display advertised to the phone in /info. */
+data class AirPlayDisplayConfig(
+    val widthPixels: Int,
+    val heightPixels: Int,
+    val widthPhysicalMm: Int? = null,
+    val heightPhysicalMm: Int? = null,
+    val fps: Int = 60,
+    val primaryInputDevice: Int = 1,
+    val viewArea: AirPlayInsets? = null,
+    val safeArea: AirPlayInsets? = null,
+    val safeAreaDrawOutside: Boolean? = null,
+    val initialUrl: String? = null,
+    /** Display feature bits; null keeps the main-screen default (high-fidelity touch and knobs). */
+    val features: Int? = null,
+    /**
+     * The view areas CarPlay may use on this display, or null for the whole display as one area. With
+     * several, the car moves CarPlay between them with updateViewArea, without reconnecting.
+     */
+    val viewAreas: List<AirPlayViewArea>? = null,
+    /** The area CarPlay starts in, an index into [viewAreas]. */
+    val initialViewArea: Int = 0,
+)
+
+/**
+ * A rectangle of the display's stream that CarPlay can draw in, and optionally the edge for its dock
+ * ([AirPlayInfoPlist.DOCK_EDGE_DRIVER_SIDE] or [AirPlayInfoPlist.DOCK_EDGE_BOTTOM]; null leaves it to
+ * the iPhone).
+ */
+data class AirPlayViewArea(
+    val width: Int,
+    val height: Int,
+    val originX: Int = 0,
+    val originY: Int = 0,
+    val dockEdge: Int? = null,
+)
+
+/** One OEM homescreen icon. */
+data class AirPlayIcon(
+    val widthPixels: Int,
+    val heightPixels: Int,
+    val data: ByteArray,
+)
+
+/** Immutable accessory configuration consumed by the AirPlay session server. */
+data class AirPlayConfig(
+    val deviceName: String,
+    val deviceId: String,
+    val btMac: String,
+    val sourceVersion: String,
+    val main: AirPlayDisplayConfig,
+    val cluster: AirPlayDisplayConfig? = null,
+    val rightHandDrive: Boolean = false,
+    val port: Int = 7000,
+    val entertainmentSampleRate: Int = 48000,
+    val hevc: Boolean = false,
+    val disableAudioOutput: Boolean = false,
+    val microphone: Boolean = false,
+    /**
+     * Whether to offer Opus alongside PCM for the microphone. False on a head unit with no
+     * Opus encoder (see [com.shilapi.xcertplay.media.OpusEncoderSupport]), which makes the
+     * iPhone pick the PCM uplink the accessory can actually send.
+     */
+    val microphoneOpus: Boolean = true,
+    /**
+     * Whether to offer Opus alongside PCM for audio output/playback. False on head units without an
+     * Opus decoder (e.g. Android 4.4 KitKat), so the iPhone chooses PCM instead of unsupported Opus.
+     */
+    val opusAudioOutput: Boolean = true,
+    /** Reproduce the working Nissan 0.2.18 audio format offer during CarPlay audio negotiation. */
+    val legacyDefaultAudioNegotiation: Boolean = false,
+    val manufacturer: String = "xcertplay",
+    val model: String = "xcertplay",
+    val oemLabel: String = "xcertplay",
+    val icons: List<AirPlayIcon> = emptyList(),
+    /**
+     * CarPlay's main buffered audio (see [BufferedAudioStream]): apps that support it send music
+     * ahead of time over TCP, so short Wi-Fi gaps do not interrupt it.
+     */
+    val mainBufferedAudio: Boolean = false,
+    /** User supplied car Bluetooth address; takes precedence over automatic OEM detection. */
+    val manualBluetoothMac: String? = null,
+)
+
+/** The offer, SETUP and controls must all honor the user's audio-output setting. */
+internal val AirPlayConfig.bufferedAudioOutputEnabled: Boolean
+    get() = mainBufferedAudio && !disableAudioOutput

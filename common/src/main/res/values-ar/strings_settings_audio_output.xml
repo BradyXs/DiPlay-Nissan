@@ -1,0 +1,33 @@
+<resources>
+    <string name="settings_carplay_media_volume">مستوى صوت الوسائط في CarPlay</string>
+    <string name="settings_carplay_navigation_volume">مستوى صوت الملاحة في CarPlay</string>
+    <string name="settings_nissan_navigation_hardware_volume">خرج ملاحة نيسان</string>
+    <string name="settings_nissan_navigation_hardware_volume_description">ارفع المستوى الأصلي لزيادة صوت إرشادات CarPlay عند 100٪. يغيّر أيضًا صوت الملاحة الأصلية. الحد الأقصى 11 ويُطبق فورًا.</string>
+    <string name="settings_nissan_navigation_hardware_volume_loading">جارٍ القراءة…</string>
+    <string name="settings_nissan_navigation_hardware_volume_unavailable">غير متاح</string>
+    <string name="settings_carplay_call_volume">مستوى صوت المكالمات في CarPlay</string>
+    <string name="settings_nissan_call_stream_mode">قناة المكالمات (تجريبي)</string>
+    <string name="settings_nissan_call_stream_auto">تلقائي</string>
+    <string name="settings_nissan_call_stream_media">قناة الوسائط (3)</string>
+    <string name="settings_nissan_call_stream_voice">قناة صوت Android (0)</string>
+    <string name="settings_nissan_call_stream_mode_description">يستخدم الوضع التلقائي قناة الصوت إذا كان مستواها أعلى من الصفر، وإلا فيستخدم الوسائط. اختر القناة لمقارنة صوت المكالمة. أعد الاتصال بـ CarPlay.</string>
+    <string name="settings_nissan_phone_hardware_volume">مستوى صوت هاتف Nissan الأصلي</string>
+    <string name="settings_nissan_phone_hardware_volume_description">مستوى الهاتف الأصلي من 0 إلى 15، يسري فورًا ويؤثر أيضًا في هاتف السيارة. تحقق أثناء المكالمة مما إذا كان يؤثر في CarPlay.</string>
+    <string name="settings_carplay_volume_description">اضبط مستوى كل صوت في CarPlay فورًا بالسحب نسبةً إلى صوت السيارة. عند تحديد شريط التمرير، تغيّر أزرار الصوت القيمة بمقدار 5٪. في وضع بلوتوث السيارة، تتحكم السيارة بالصوت.</string>
+    <string name="settings_carplay_previous_track">السابق</string>
+    <string name="settings_carplay_play_pause">تشغيل / إيقاف مؤقت</string>
+    <string name="settings_carplay_next_track">التالي</string>
+    <string name="settings_carplay_answer_call">رد</string>
+    <string name="settings_carplay_end_call">إنهاء / رفض</string>
+    <string name="settings_carplay_audio_output">إخراج صوت CarPlay</string>
+    <string name="settings_carplay_audio_output_description">عند التشغيل: يُشغَّل الصوت عبر CarPlay. عند الإيقاف: يرسل NiPlay الصورة فقط؛ اختر صوت Bluetooth الخاص بالسيارة على iPhone. سيتوقف أيضًا استخدام صوت CarPlay للمكالمات وSiri والإرشادات الصوتية للملاحة. أعد الاتصال بـ CarPlay لتطبيق التغيير.</string>
+    <string name="settings_nissan_audio_mode">وضع إخراج الصوت</string>
+    <string name="settings_nissan_audio_bluetooth">بلوتوث السيارة</string>
+    <string name="settings_nissan_audio_carplay">CarPlay</string>
+    <string name="settings_nissan_audio_mode_description">بلوتوث السيارة: أبقِ البلوتوث قيد التشغيل واختره لإخراج الصوت على iPhone؛ يستقبل NiPlay الفيديو فقط. CarPlay: يستقبل NiPlay الصوت ويوقف بلوتوث السيارة بعد انتقال Wi-Fi وظهور أول إطار وبدء تدفق الصوت. أعد اتصال CarPlay لتطبيق التغيير.</string>
+    <string name="settings_nissan_bluetooth_title">بلوتوث نيسان</string>
+    <string name="settings_nissan_bluetooth_paired">مقترن: %1$s</string>
+    <string name="settings_nissan_bluetooth_none">لا يوجد هاتف مقترن</string>
+    <string name="settings_nissan_bluetooth_checking">جارٍ فحص الهاتف المقترن…</string>
+    <string name="settings_nissan_bluetooth_long_press">اضغط لفتح إعدادات بلوتوث نيسان؛ اضغط مطولاً لإدخال عنوان بلوتوث السيارة يدوياً.</string>
+</resources>

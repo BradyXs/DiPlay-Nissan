@@ -1,0 +1,33 @@
+<resources>
+    <string name="settings_carplay_media_volume">Volumen multimedia de CarPlay</string>
+    <string name="settings_carplay_navigation_volume">Volumen de navegación de CarPlay</string>
+    <string name="settings_nissan_navigation_hardware_volume">Salida de navegación Nissan</string>
+    <string name="settings_nissan_navigation_hardware_volume_description">Sube el nivel original para que las indicaciones de CarPlay suenen más fuerte al 100 %. También cambia el volumen de la navegación original. Máximo 11; se aplica al instante.</string>
+    <string name="settings_nissan_navigation_hardware_volume_loading">Leyendo…</string>
+    <string name="settings_nissan_navigation_hardware_volume_unavailable">No disponible</string>
+    <string name="settings_carplay_call_volume">Volumen de llamadas de CarPlay</string>
+    <string name="settings_nissan_call_stream_mode">Canal de llamadas (experimental)</string>
+    <string name="settings_nissan_call_stream_auto">Automático</string>
+    <string name="settings_nissan_call_stream_media">Canal multimedia (3)</string>
+    <string name="settings_nissan_call_stream_voice">Canal de voz Android (0)</string>
+    <string name="settings_nissan_call_stream_mode_description">El modo automático usa el canal de voz si su volumen es mayor que cero; de lo contrario usa multimedia. Selecciona un canal para comparar las llamadas. Vuelve a conectar CarPlay.</string>
+    <string name="settings_nissan_phone_hardware_volume">Volumen telefónico original Nissan</string>
+    <string name="settings_nissan_phone_hardware_volume_description">Nivel telefónico original de 0 a 15; se aplica al instante y también afecta al teléfono del coche. Comprueba durante una llamada si afecta a CarPlay.</string>
+    <string name="settings_carplay_volume_description">Desliza para ajustar cada sonido de CarPlay al instante respecto al volumen del coche. Con el control seleccionado, las teclas de volumen cambian un 5 %. En modo Bluetooth, el coche controla el sonido.</string>
+    <string name="settings_carplay_previous_track">Anterior</string>
+    <string name="settings_carplay_play_pause">Reproducir / pausar</string>
+    <string name="settings_carplay_next_track">Siguiente</string>
+    <string name="settings_carplay_answer_call">Responder</string>
+    <string name="settings_carplay_end_call">Colgar / rechazar</string>
+    <string name="settings_carplay_audio_output">Salida de audio de CarPlay</string>
+    <string name="settings_carplay_audio_output_description">Activado: el sonido se reproduce por CarPlay. Desactivado: NiPlay solo envía vídeo; selecciona el audio Bluetooth del coche en el iPhone. Las llamadas, Siri y las indicaciones de navegación también dejarán de usar el audio de CarPlay. Vuelve a conectar CarPlay para aplicar el cambio.</string>
+    <string name="settings_nissan_audio_mode">Modo de salida de audio</string>
+    <string name="settings_nissan_audio_bluetooth">Bluetooth del coche</string>
+    <string name="settings_nissan_audio_carplay">CarPlay</string>
+    <string name="settings_nissan_audio_mode_description">Bluetooth del coche: mantén Bluetooth encendido y selecciónalo como salida en el iPhone; NiPlay solo recibe vídeo. CarPlay: NiPlay recibe audio y apaga el Bluetooth del coche tras completar Wi-Fi, mostrar el primer fotograma y establecer un flujo de audio. Vuelve a conectar CarPlay para aplicar el cambio.</string>
+    <string name="settings_nissan_bluetooth_title">Bluetooth Nissan</string>
+    <string name="settings_nissan_bluetooth_paired">Emparejado: %1$s</string>
+    <string name="settings_nissan_bluetooth_none">Ningún teléfono emparejado</string>
+    <string name="settings_nissan_bluetooth_checking">Comprobando el teléfono emparejado…</string>
+    <string name="settings_nissan_bluetooth_long_press">Toca para abrir los ajustes Bluetooth de Nissan; mantén pulsado para introducir la MAC del coche.</string>
+</resources>

@@ -1,0 +1,33 @@
+<resources>
+    <string name="settings_carplay_media_volume">CarPlay 媒體音量</string>
+    <string name="settings_carplay_navigation_volume">CarPlay 導航音量</string>
+    <string name="settings_nissan_navigation_hardware_volume">日產導航通道音量</string>
+    <string name="settings_nissan_navigation_hardware_volume_description">調高後，CarPlay 導航在 100% 時可以更響；原廠導航語音也會隨之改變。最大 11，立即生效。</string>
+    <string name="settings_nissan_navigation_hardware_volume_loading">讀取中…</string>
+    <string name="settings_nissan_navigation_hardware_volume_unavailable">無法使用</string>
+    <string name="settings_carplay_call_volume">CarPlay 通話音量</string>
+    <string name="settings_nissan_call_stream_mode">通話音訊通道（實驗性）</string>
+    <string name="settings_nissan_call_stream_auto">自動</string>
+    <string name="settings_nissan_call_stream_media">媒體通道（3）</string>
+    <string name="settings_nissan_call_stream_voice">Android 通話通道（0）</string>
+    <string name="settings_nissan_call_stream_mode_description">自動模式在 Android 通話流音量大於 0 時優先使用它，否則使用媒體流。可分別選擇通道比較通話聲音；重新連線 CarPlay 後生效。</string>
+    <string name="settings_nissan_phone_hardware_volume">日產原廠電話音量</string>
+    <string name="settings_nissan_phone_hardware_volume_description">原廠電話音量，範圍 0–15，立即生效。它也會改變原廠電話聲音；是否影響 CarPlay 通話需在通話中實測。</string>
+    <string name="settings_carplay_volume_description">滑動調整三類 CarPlay 聲音相對車機音量的大小，立即生效。進度條取得焦點時，音量鍵可每次調整 5%。車載藍牙模式的音量由車機控制。</string>
+    <string name="settings_carplay_previous_track">上一首</string>
+    <string name="settings_carplay_play_pause">播放 / 暫停</string>
+    <string name="settings_carplay_next_track">下一首</string>
+    <string name="settings_carplay_answer_call">接聽</string>
+    <string name="settings_carplay_end_call">掛斷 / 拒接</string>
+    <string name="settings_carplay_audio_output">CarPlay 音訊輸出</string>
+    <string name="settings_carplay_audio_output_description">開啟：聲音透過 CarPlay 播放。關閉：NiPlay 只傳畫面；請在 iPhone 上選擇車載藍牙播放聲音。關閉後，CarPlay 通話、Siri 和導航語音也不會透過 CarPlay 輸出。重新連線 CarPlay 後生效。</string>
+    <string name="settings_nissan_audio_mode">音訊輸出模式</string>
+    <string name="settings_nissan_audio_bluetooth">車載藍牙</string>
+    <string name="settings_nissan_audio_carplay">CarPlay</string>
+    <string name="settings_nissan_audio_mode_description">車載藍牙：保持藍牙開啟，並在 iPhone 選擇車載藍牙輸出；NiPlay 只接收畫面。CarPlay：由 NiPlay 接收音訊，在 Wi-Fi 交接、首幀顯示且音訊串流建立後關閉車機藍牙。重新連線 CarPlay 後生效。</string>
+    <string name="settings_nissan_bluetooth_title">日產藍牙</string>
+    <string name="settings_nissan_bluetooth_paired">已配對：%1$s</string>
+    <string name="settings_nissan_bluetooth_none">尚未配對手機</string>
+    <string name="settings_nissan_bluetooth_checking">正在讀取配對手機…</string>
+    <string name="settings_nissan_bluetooth_long_press">點擊開啟日產藍牙設定；長按可手動輸入車機藍牙位址。</string>
+</resources>

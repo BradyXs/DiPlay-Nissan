@@ -1,0 +1,71 @@
+package com.shilapi.xcertplay.transport
+
+import android.hardware.usb.UsbDeviceConnection
+import android.hardware.usb.UsbRequest
+import android.util.Log
+import java.nio.ByteBuffer
+
+/**
+ * Reference-counted owner for one Android USB device connection.
+ *
+ * Legacy Android head units can reject claims made from a second file descriptor for another
+ * interface of the same composite iPhone. USBMUX and NCM can therefore share one connection while
+ * keeping independent lifetimes; the underlying connection closes only after both users release it.
+ */
+internal class SharedUsbDeviceConnection private constructor(
+    val connection: UsbDeviceConnection,
+) {
+    private var references = 1
+    private var closed = false
+    private val usbCompat = UsbRequestCompat()
+    private val completions = UsbCompletionRouter<UsbRequest> { usbCompat.requestWait(connection, it) }
+
+    fun queue(request: UsbRequest, buffer: ByteBuffer): Boolean {
+        completions.register(request)
+        return try {
+            usbCompat.queue(request, buffer).also { if (!it) completions.forget(request) }
+        } catch (failure: Throwable) {
+            completions.forget(request)
+            throw failure
+        }
+    }
+
+    fun await(request: UsbRequest, timeoutMillis: Long): UsbRequest = completions.await(request, timeoutMillis)
+    fun forget(request: UsbRequest) = completions.forget(request)
+
+    @Synchronized
+    fun retain(): SharedUsbDeviceConnection {
+        check(!closed) { "USB device connection is already closed" }
+        references += 1
+        return this
+    }
+
+    @Synchronized
+    fun release() {
+        if (closed) return
+        references -= 1
+        check(references >= 0) { "USB device connection released too many times" }
+        if (references == 0) {
+            closed = true
+            // Android 4.x: the wait worker can be blocked inside native requestWait().
+            // Freeing the connection under it (native_close frees the usb_device) makes
+            // REAPURB return freed memory and libc aborts (SIGABRT in the wait thread).
+            // Cancel every queued request so the blocked wait completes, wait for the
+            // worker to go idle, and only then free the connection.
+            completions.cancelAll { request -> runCatching { request.cancel() } }
+            val drained = usbCompat.drain(WORKER_DRAIN_TIMEOUT_MILLIS)
+            if (!drained) {
+                Log.w(TAG, "USB wait worker did not go idle within ${WORKER_DRAIN_TIMEOUT_MILLIS}ms; closing the connection anyway")
+            }
+            connection.close()
+        }
+    }
+
+    companion object {
+        private const val TAG = "xcertplay-usb"
+        private const val WORKER_DRAIN_TIMEOUT_MILLIS = 2_000L
+
+        fun own(connection: UsbDeviceConnection): SharedUsbDeviceConnection =
+            SharedUsbDeviceConnection(connection)
+    }
+}

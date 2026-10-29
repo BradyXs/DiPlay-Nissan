@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <application>
+        <service
+            android:name="com.shilapi.xcertplay.NissanPhoneKeyProbeService"
+            android:enabled="false"
+            android:exported="true"
+            android:process=":nissan_keys">
+            <intent-filter android:priority="1000">
+                <action android:name="com.hsae.auto.USER_BEHAVIOR_SERVICE" />
+            </intent-filter>
+        </service>
+        <receiver
+            android:name="com.shilapi.xcertplay.NissanOemKeyReceiver"
+            android:exported="false" />
+        <provider
+            android:name="androidx.startup.InitializationProvider"
+            tools:ignore="MissingClass"
+            tools:node="remove" />
+    </application>
+</manifest>

@@ -1,0 +1,69 @@
+plugins {
+    id 'com.android.library'
+}
+
+// Optional device-targeted packaging for the Nissan Android 4.4.3 (32-bit ARM) head unit.
+// With no property, retain the complete upstream ABI set.
+def nissanAndroid44Abi = project.findProperty('nissanAndroid44Abi')?.toString()
+
+android {
+    namespace = 'com.shilapi.xcertplay.shared'
+    compileSdk = 37
+
+    defaultConfig {
+        minSdk = 19
+        targetSdk = 37
+        multiDexEnabled true
+
+        ndk {
+            if (nissanAndroid44Abi) {
+                abiFilters nissanAndroid44Abi
+            } else {
+                abiFilters 'arm64-v8a', 'armeabi-v7a', 'x86_64', 'x86'
+            }
+        }
+
+        externalNativeBuild {
+            ndkBuild {
+                arguments 'APP_PLATFORM=android-19'
+                if (org.gradle.internal.os.OperatingSystem.current().isWindows()) {
+                    arguments 'HOST_OS=windows'
+                }
+            }
+        }
+
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+    // NDK r25c is the last supported toolchain that still targets Android 4.4 (API 19).
+    ndkVersion = '25.2.9519653'
+    externalNativeBuild {
+        ndkBuild {
+            path = file('src/main/jni/Android.mk')
+        }
+    }
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_11
+        targetCompatibility = JavaVersion.VERSION_11
+        coreLibraryDesugaringEnabled true
+    }
+}
+dependencies {
+    coreLibraryDesugaring libs.desugar.jdk.libs
+    implementation 'androidx.annotation:annotation:1.7.1'
+    implementation libs.bouncycastle
+    api 'org.conscrypt:conscrypt-android:2.5.2'
+    implementation libs.jmdns
+    testImplementation libs.junit
+    testImplementation 'org.robolectric:robolectric:4.17'
+}
+
+def prepareOpusSources = tasks.register('prepareOpusSources', Exec) {
+    workingDir rootProject.projectDir
+    commandLine (System.getProperty('os.name').toLowerCase().contains('windows') ? ['py', '-3', 'scripts/prepare-libopus.py'] : ['python3', 'scripts/prepare-libopus.py'])
+}
+tasks.configureEach { task ->
+    if (task.name.startsWith('generateJsonModel') || task.name.startsWith('externalNativeBuild') ||
+        task.name.startsWith('configureNdkBuild')) {
+        task.dependsOn(prepareOpusSources)
+    }
+}
