@@ -1,4 +1,4 @@
-name: Publish NiPlay release
+name: Publish DiPlay-Nissan release
 
 on:
   push:
@@ -47,4 +47,4 @@ jobs:
             printf '%s\n' '版本已创建。安装包需在本地使用授权的认证材料构建、验证后上传；上传前本页面仅提供源码归档。' > "$notes"
           fi
           gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --verify-tag \
-            --title "NiPlay $RELEASE_TAG" --notes-file "$notes"
+            --title "DiPlay-Nissan $RELEASE_TAG" --notes-file "$notes"

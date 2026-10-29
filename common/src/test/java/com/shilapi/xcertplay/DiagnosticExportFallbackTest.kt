@@ -63,7 +63,7 @@ class DiagnosticExportFallbackTest {
         val usb = File(context.cacheDir, "usb-volume").apply { mkdirs() }
         val content = "DiPlay USB report\nAPI=19\n"
         val saved = DiagnosticExportStore.saveWithoutPicker(context, "DiPlay-test-usb.txt", content, usb)
-        val copy = File(usb, "NiPlay/DiPlay-test-usb.txt")
+        val copy = File(usb, "DiPlay/DiPlay-test-usb.txt")
         assertTrue(copy.isFile)
         assertEquals(content, copy.readText(Charsets.UTF_8))
         assertTrue(saved.copyPaths.contains(copy.absolutePath))

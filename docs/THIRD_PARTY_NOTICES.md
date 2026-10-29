@@ -2,7 +2,7 @@
 
 ## Receiver
 
-NiPlay builds on [DiPlay](https://github.com/shihabal3amri/DiPlay), [DiPlay-Legacy-Android](https://github.com/programmerguohuajing/DiPlay-Legacy-Android) and [xcertplay by shilapi](https://github.com/shilapi/xcertplay). Thank you to their authors and contributors. The upstream receiver is licensed under GNU GPL version 3; the full text is in `LICENSE` and the original README is retained in `docs/UPSTREAM-README.md`.
+DiPlay-Nissan builds on [DiPlay](https://github.com/shihabal3amri/DiPlay), [DiPlay-Legacy-Android](https://github.com/programmerguohuajing/DiPlay-Legacy-Android) and [xcertplay by shilapi](https://github.com/shilapi/xcertplay). Thank you to their authors and contributors. The upstream receiver is licensed under GNU GPL version 3; the full text is in `LICENSE` and the original README is retained in `docs/UPSTREAM-README.md`.
 
 Upstream credits [LIVI](https://github.com/f-io/LIVI) and [Showcase](https://github.com/amineross/showcase) for protocol research. Existing source comments and attribution are preserved.
 
@@ -40,4 +40,4 @@ The source repository does not include accessory authentication keys or Android 
 
 ## Project website
 
-The NiPlay project page uses its own simplified Chinese layout and stylesheet. The original DiAuto attribution for the app settings interface remains above.
+The DiPlay-Nissan project page uses its own simplified Chinese layout and stylesheet. The original DiAuto attribution for the app settings interface remains above.

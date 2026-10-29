@@ -6,13 +6,13 @@ import org.junit.Test
 
 class NissanPhoneKeyRoutingTest {
     @Test fun factoryNavigationKeysStayWithTheFactory() {
-        assertFalse(NissanPhoneKeyProbe.shouldDispatchToNiPlay(0)) // Back
-        assertFalse(NissanPhoneKeyProbe.shouldDispatchToNiPlay(2)) // Home
+        assertFalse(NissanPhoneKeyProbe.shouldDispatchToDiPlay(0)) // Back
+        assertFalse(NissanPhoneKeyProbe.shouldDispatchToDiPlay(2)) // Home
     }
 
     @Test fun carPlayControlsKeepTheirOemRelay() {
         listOf(6, 7, 26, 27, 28, 29, 31, 32).forEach {
-            assertTrue(NissanPhoneKeyProbe.shouldDispatchToNiPlay(it))
+            assertTrue(NissanPhoneKeyProbe.shouldDispatchToDiPlay(it))
         }
     }
 }

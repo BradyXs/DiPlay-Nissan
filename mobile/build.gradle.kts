@@ -40,8 +40,8 @@ android {
         multiDexEnabled = true
         multiDexKeepProguard = file("multidex-config.pro")
         testInstrumentationRunner = "com.shilapi.xcertplay.T3LegacyInstrumentation"
-        versionCode = 82
-        versionName = "0.2.62"
+        versionCode = 83
+        versionName = "0.2.63"
         nissanAndroid44Abi?.let { abi ->
             ndk {
                 abiFilters += abi
@@ -109,7 +109,7 @@ android {
     }
     packaging {
         resources {
-            // bcprov ships Picnic lookup tables, but NiPlay uses EC, Curve25519,
+            // bcprov ships Picnic lookup tables, but DiPlay-Nissan uses EC, Curve25519,
             // ChaCha20-Poly1305 and ASN.1 only. These tables are never loaded.
             excludes += "org/bouncycastle/pqc/crypto/picnic/*.properties"
         }

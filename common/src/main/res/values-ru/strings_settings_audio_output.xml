@@ -20,11 +20,11 @@
     <string name="settings_carplay_answer_call">Ответить</string>
     <string name="settings_carplay_end_call">Завершить / отклонить</string>
     <string name="settings_carplay_audio_output">Вывод звука CarPlay</string>
-    <string name="settings_carplay_audio_output_description">Включено: звук передаётся через CarPlay. Выключено: NiPlay передаёт только видео; выберите аудиосистему автомобиля Bluetooth на iPhone. Звук вызовов, Siri и навигационных подсказок также перестанет передаваться через CarPlay. Переподключите CarPlay, чтобы применить изменение.</string>
+    <string name="settings_carplay_audio_output_description">Включено: звук передаётся через CarPlay. Выключено: DiPlay передаёт только видео; выберите аудиосистему автомобиля Bluetooth на iPhone. Звук вызовов, Siri и навигационных подсказок также перестанет передаваться через CarPlay. Переподключите CarPlay, чтобы применить изменение.</string>
     <string name="settings_nissan_audio_mode">Режим вывода звука</string>
     <string name="settings_nissan_audio_bluetooth">Bluetooth автомобиля</string>
     <string name="settings_nissan_audio_carplay">CarPlay</string>
-    <string name="settings_nissan_audio_mode_description">Bluetooth автомобиля: оставьте Bluetooth включённым и выберите его для звука на iPhone; NiPlay получает только видео. CarPlay: NiPlay получает звук и выключает Bluetooth автомобиля после перехода на Wi-Fi, первого кадра и создания аудиопотока. Для применения переподключите CarPlay.</string>
+    <string name="settings_nissan_audio_mode_description">Bluetooth автомобиля: оставьте Bluetooth включённым и выберите его для звука на iPhone; DiPlay получает только видео. CarPlay: DiPlay получает звук и выключает Bluetooth автомобиля после перехода на Wi-Fi, первого кадра и создания аудиопотока. Для применения переподключите CarPlay.</string>
     <string name="settings_nissan_bluetooth_title">Bluetooth Nissan</string>
     <string name="settings_nissan_bluetooth_paired">Сопряжён: %1$s</string>
     <string name="settings_nissan_bluetooth_none">Нет сопряжённого телефона</string>

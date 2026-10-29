@@ -99,7 +99,7 @@ internal object DiagnosticExportStore {
             runCatching {
                 if (!root.isDirectory || !root.canWrite()) return@runCatching
                 val canonicalRoot = root.canonicalFile
-                val dir = File(canonicalRoot, "NiPlay")
+                val dir = File(canonicalRoot, "DiPlay")
                 if (!dir.isDirectory && !dir.mkdirs()) return@runCatching
                 val destination = File(dir, fileName)
                 // Do not overwrite an existing report or follow an unexpected symlink.
@@ -143,7 +143,7 @@ internal object DiagnosticExportStore {
         val values = ContentValues().apply {
             put(MediaStore.Downloads.DISPLAY_NAME, fileName)
             put(MediaStore.Downloads.MIME_TYPE, "text/plain")
-            put(MediaStore.Downloads.RELATIVE_PATH, "${Environment.DIRECTORY_DOWNLOADS}/NiPlay")
+            put(MediaStore.Downloads.RELATIVE_PATH, "${Environment.DIRECTORY_DOWNLOADS}/DiPlay")
             put(MediaStore.Downloads.IS_PENDING, 1)
         }
         val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)

@@ -91,7 +91,7 @@ internal object NissanCarPlayVolumeOverlay {
                     toastContent?.let { update(it, app, target, percent) }
                     toast?.show()
                 }
-            }.onFailure { Log.w("NiPlayVolume", "Could not show OEM volume feedback", it) }
+            }.onFailure { Log.w("DiPlayVolume", "Could not show OEM volume feedback", it) }
         }
     }
 

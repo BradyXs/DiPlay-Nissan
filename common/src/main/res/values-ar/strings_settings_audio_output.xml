@@ -20,11 +20,11 @@
     <string name="settings_carplay_answer_call">رد</string>
     <string name="settings_carplay_end_call">إنهاء / رفض</string>
     <string name="settings_carplay_audio_output">إخراج صوت CarPlay</string>
-    <string name="settings_carplay_audio_output_description">عند التشغيل: يُشغَّل الصوت عبر CarPlay. عند الإيقاف: يرسل NiPlay الصورة فقط؛ اختر صوت Bluetooth الخاص بالسيارة على iPhone. سيتوقف أيضًا استخدام صوت CarPlay للمكالمات وSiri والإرشادات الصوتية للملاحة. أعد الاتصال بـ CarPlay لتطبيق التغيير.</string>
+    <string name="settings_carplay_audio_output_description">عند التشغيل: يُشغَّل الصوت عبر CarPlay. عند الإيقاف: يرسل DiPlay الصورة فقط؛ اختر صوت Bluetooth الخاص بالسيارة على iPhone. سيتوقف أيضًا استخدام صوت CarPlay للمكالمات وSiri والإرشادات الصوتية للملاحة. أعد الاتصال بـ CarPlay لتطبيق التغيير.</string>
     <string name="settings_nissan_audio_mode">وضع إخراج الصوت</string>
     <string name="settings_nissan_audio_bluetooth">بلوتوث السيارة</string>
     <string name="settings_nissan_audio_carplay">CarPlay</string>
-    <string name="settings_nissan_audio_mode_description">بلوتوث السيارة: أبقِ البلوتوث قيد التشغيل واختره لإخراج الصوت على iPhone؛ يستقبل NiPlay الفيديو فقط. CarPlay: يستقبل NiPlay الصوت ويوقف بلوتوث السيارة بعد انتقال Wi-Fi وظهور أول إطار وبدء تدفق الصوت. أعد اتصال CarPlay لتطبيق التغيير.</string>
+    <string name="settings_nissan_audio_mode_description">بلوتوث السيارة: أبقِ البلوتوث قيد التشغيل واختره لإخراج الصوت على iPhone؛ يستقبل DiPlay الفيديو فقط. CarPlay: يستقبل DiPlay الصوت ويوقف بلوتوث السيارة بعد انتقال Wi-Fi وظهور أول إطار وبدء تدفق الصوت. أعد اتصال CarPlay لتطبيق التغيير.</string>
     <string name="settings_nissan_bluetooth_title">بلوتوث نيسان</string>
     <string name="settings_nissan_bluetooth_paired">مقترن: %1$s</string>
     <string name="settings_nissan_bluetooth_none">لا يوجد هاتف مقترن</string>

@@ -1,4 +1,4 @@
-name: Deploy NiPlay project page
+name: Deploy DiPlay-Nissan project page
 on:
   push:
     branches: [main]

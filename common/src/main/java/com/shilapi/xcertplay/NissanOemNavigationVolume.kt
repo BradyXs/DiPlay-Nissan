@@ -4,7 +4,7 @@ import android.os.IBinder
 import android.os.Parcel
 import java.util.concurrent.Executors
 
-/** The factory navigation amplifier level, independent of NiPlay's per-track gain. */
+/** The factory navigation amplifier level, independent of DiPlay's per-track gain. */
 internal object NissanOemNavigationVolume {
     const val MAX_LEVEL = 11
     private const val SERVICE = "com.hsae.auto.IBINDER_SETTINGS"

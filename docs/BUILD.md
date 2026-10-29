@@ -1,4 +1,4 @@
-# Build NiPlay
+# Build DiPlay-Nissan
 
 Build from the repository root. The main Android app is the `:mobile` module.
 

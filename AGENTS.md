@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Instructions for coding agents that work on NiPlay.
+Instructions for coding agents that work on DiPlay-Nissan.
 
 ## Checks
 

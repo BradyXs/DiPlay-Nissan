@@ -197,7 +197,7 @@ internal object NissanPhoneKeyProbe {
                 val sent = target.transact(code, data, reply, flags)
                 if (sent) forwarded.incrementAndGet() else failures.incrementAndGet()
                 if (!sent) record(context, "forward failed code=$code transact=false")
-                if (sent && phoneOperation != null && shouldDispatchToNiPlay(phoneOperation)) {
+                if (sent && phoneOperation != null && shouldDispatchToDiPlay(phoneOperation)) {
                     // The factory receiver must see the unmodified event first.
                     runCatching { NissanOemKeyRelay.userBehavior(context, phoneOperation) }.onFailure {
                         record(context, "CarPlay key handling failed error=${it.javaClass.simpleName}")
@@ -214,7 +214,7 @@ internal object NissanPhoneKeyProbe {
 
     internal fun onPhoneOperation(context: Context, operation: Int) {
         if (!enabled(context)) return
-        if (!shouldDispatchToNiPlay(operation)) return
+        if (!shouldDispatchToDiPlay(operation)) return
         val current = CarPlayBackgroundSession.snapshot()
         val call = current?.controller?.currentCallSnapshot()
         if (operation == PANEL_VOLUME_UP || operation == PANEL_VOLUME_DOWN ||
@@ -373,7 +373,7 @@ internal object NissanPhoneKeyProbe {
     }
 
     /** Back and Home remain exclusively with the factory; CarPlay keys still use the relay. */
-    internal fun shouldDispatchToNiPlay(operation: Int): Boolean =
+    internal fun shouldDispatchToDiPlay(operation: Int): Boolean =
         operation != OEM_BACK && operation != OEM_HOME
 
     private fun fallback(code: Int, reply: Parcel?, flags: Int): Boolean {

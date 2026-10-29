@@ -1,4 +1,4 @@
-name: Verify NiPlay release APK
+name: Verify DiPlay-Nissan release APK
 
 on:
   release:

@@ -22,7 +22,7 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "NiPlay"
+rootProject.name = "DiPlay-Nissan"
 include(":common")
 include(":mobile")
 // include(":automotive")

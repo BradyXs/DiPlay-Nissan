@@ -159,7 +159,7 @@ class CarPlayHostActivity : ComponentActivity() {
         remoteMfiServer = remoteMfiServer.trim().takeIf { it.isNotEmpty() },
         remoteMfiToken = remoteMfiToken.takeIf { it.isNotEmpty() },
         identification = Iap2IdentificationConfig(
-            name = "NiPlay",
+            name = "DiPlay",
             modelIdentifier = normalizedModel(),
             manufacturer = normalizedManufacturer(),
             serialNumber = "DIPLAY-" + DiPlayBootstrap.deviceId(airPlayIdentity).replace(":", ""),
@@ -168,7 +168,7 @@ class CarPlayHostActivity : ComponentActivity() {
             carPlayUsbInterfaceNumber = 3,
             locationInformationEnabled = locationReportingEnabled,
         ),
-        label = "NiPlay",
+        label = "DiPlay",
         hostName = "diplay-" + DiPlayBootstrap.deviceId(airPlayIdentity).replace(":", "").lowercase(),
         hostMac = DiPlayBootstrap.deviceId(airPlayIdentity).split(":").map { it.toInt(16).toByte() }.toByteArray(),
         wirelessBluetoothDeviceAddress = DiPlayPreferences.phoneAddress(this),
@@ -3198,7 +3198,7 @@ class CarPlayHostActivity : ComponentActivity() {
                 "elapsedMs=${(SystemClock.elapsedRealtimeNanos() - iconStartedAtNs) / 1_000_000L} thread=main",
         )
         return AirPlayConfig(
-            deviceName = "NiPlay",
+            deviceName = "DiPlay",
             deviceId = DiPlayBootstrap.deviceId(airPlayIdentity),
             btMac = cachedBtMac ?: DiPlayBootstrap.deviceId(airPlayIdentity),
             manualBluetoothMac = com.shilapi.xcertplay.bluetooth.BluetoothAddressResolver.normalize(
@@ -4556,7 +4556,7 @@ class CarPlayHostActivity : ComponentActivity() {
         val logFile = File(File(filesDir, "logs"), "diplay.log")
         val activeLog = SessionLogFile(logFile)
         AsyncDiagnosticLog.reset(activeLog,
-            "NiPlay log started " +
+            "DiPlay log started " +
                 "${SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.US).format(Date())} " +
                 "pid=${Process.myPid()} path=${logFile.absolutePath}")
         sessionLog = activeLog

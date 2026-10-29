@@ -1926,7 +1926,7 @@ class DiPlayActivity : ComponentActivity() {
                 getSystemService(Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager
             }
             clipboard?.setPrimaryClip(
-                android.content.ClipData.newPlainText("NiPlay ADB Command", adbCmd)
+                android.content.ClipData.newPlainText("DiPlay ADB Command", adbCmd)
             )
             toast(getString(R.string.copied_to_the_car_clipboard_run_the_command_on_your_comput))
         }, matchButton(8, 50))
@@ -2736,7 +2736,7 @@ class DiPlayActivity : ComponentActivity() {
         refreshReconnectBar()
         refreshReadiness()
     }
-    private fun reportFileName() = "NiPlay-${SimpleDateFormat("yyyyMMdd-HHmmss-SSS", Locale.US).format(Date())}.txt"
+    private fun reportFileName() = "DiPlay-${SimpleDateFormat("yyyyMMdd-HHmmss-SSS", Locale.US).format(Date())}.txt"
 
     private var preferredReportRoot: File? = null
 
@@ -2777,7 +2777,7 @@ class DiPlayActivity : ComponentActivity() {
             val result = runCatching {
                 val sessionLogFlushed = AsyncDiagnosticLog.awaitIdle(5_000L)
                 val report = buildString {
-                    appendLine("NiPlay ${version()} · private beta diagnostic report")
+                    appendLine("DiPlay ${version()} · diagnostic report")
                     appendLine("Android ${Build.VERSION.RELEASE} / API ${Build.VERSION.SDK_INT}")
                     appendLine("Head unit: ${Build.MANUFACTURER} ${Build.MODEL}")
                     appendLine("Detailed playback logs: ${AirPlayPersistence.loadDetailedDiagnosticsEnabled(appContext)}; " +
@@ -2845,7 +2845,7 @@ class DiPlayActivity : ComponentActivity() {
                             savedReport.savedInApp -> getString(R.string.diagnostic_report_saved_in_app)
                             savedReport.savedPath != null -> getString(R.string.diagnostic_report_saved_to_path, savedReport.savedPath) +
                                 if (savedReport.copyPaths.isEmpty()) "\n" + getString(R.string.report_usb_copy_unavailable) else "\n" + getString(R.string.report_usb_copy_paths, savedReport.copyPaths.joinToString("\n"))
-                            uri == null -> "Downloads/NiPlay/$fileName"
+                            uri == null -> "Downloads/DiPlay/$fileName"
                             else -> getString(R.string.your_report_was_saved_to_the_selected_location)
                         })
                         .setPositiveButton(getString(R.string.view_diagnostic_report)) { _, _ -> showDiagnosticReport(report) }

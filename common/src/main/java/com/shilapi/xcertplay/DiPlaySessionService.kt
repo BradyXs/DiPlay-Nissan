@@ -41,7 +41,7 @@ class DiPlaySessionService : Service() {
         }
         builder
             .setSmallIcon(if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) R.drawable.ic_diplay_notification else R.drawable.ic_carplay)
-            .setContentTitle("NiPlay")
+            .setContentTitle("DiPlay")
             .setContentText("CarPlay connection running")
             .setContentIntent(open).setOngoing(true)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {

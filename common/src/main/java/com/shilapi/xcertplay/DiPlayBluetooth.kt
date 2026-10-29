@@ -47,6 +47,6 @@ internal object DiPlayBluetooth {
             } finally {
                 prefetchInFlight.set(false)
             }
-        }, "niplay-bt-address-cache").apply { isDaemon = true; start() }
+        }, "diplay-bt-address-cache").apply { isDaemon = true; start() }
     }
 }

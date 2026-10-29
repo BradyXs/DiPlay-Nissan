@@ -20,11 +20,11 @@
     <string name="settings_carplay_answer_call">Responder</string>
     <string name="settings_carplay_end_call">Colgar / rechazar</string>
     <string name="settings_carplay_audio_output">Salida de audio de CarPlay</string>
-    <string name="settings_carplay_audio_output_description">Activado: el sonido se reproduce por CarPlay. Desactivado: NiPlay solo envía vídeo; selecciona el audio Bluetooth del coche en el iPhone. Las llamadas, Siri y las indicaciones de navegación también dejarán de usar el audio de CarPlay. Vuelve a conectar CarPlay para aplicar el cambio.</string>
+    <string name="settings_carplay_audio_output_description">Activado: el sonido se reproduce por CarPlay. Desactivado: DiPlay solo envía vídeo; selecciona el audio Bluetooth del coche en el iPhone. Las llamadas, Siri y las indicaciones de navegación también dejarán de usar el audio de CarPlay. Vuelve a conectar CarPlay para aplicar el cambio.</string>
     <string name="settings_nissan_audio_mode">Modo de salida de audio</string>
     <string name="settings_nissan_audio_bluetooth">Bluetooth del coche</string>
     <string name="settings_nissan_audio_carplay">CarPlay</string>
-    <string name="settings_nissan_audio_mode_description">Bluetooth del coche: mantén Bluetooth encendido y selecciónalo como salida en el iPhone; NiPlay solo recibe vídeo. CarPlay: NiPlay recibe audio y apaga el Bluetooth del coche tras completar Wi-Fi, mostrar el primer fotograma y establecer un flujo de audio. Vuelve a conectar CarPlay para aplicar el cambio.</string>
+    <string name="settings_nissan_audio_mode_description">Bluetooth del coche: mantén Bluetooth encendido y selecciónalo como salida en el iPhone; DiPlay solo recibe vídeo. CarPlay: DiPlay recibe audio y apaga el Bluetooth del coche tras completar Wi-Fi, mostrar el primer fotograma y establecer un flujo de audio. Vuelve a conectar CarPlay para aplicar el cambio.</string>
     <string name="settings_nissan_bluetooth_title">Bluetooth Nissan</string>
     <string name="settings_nissan_bluetooth_paired">Emparejado: %1$s</string>
     <string name="settings_nissan_bluetooth_none">Ningún teléfono emparejado</string>

@@ -20,11 +20,11 @@
     <string name="settings_carplay_answer_call">Answer</string>
     <string name="settings_carplay_end_call">Hang up / decline</string>
     <string name="settings_carplay_audio_output">CarPlay audio output</string>
-    <string name="settings_carplay_audio_output_description">On: play sound through CarPlay. Off: NiPlay sends video only; choose the car Bluetooth audio output on iPhone. CarPlay calls, Siri and navigation voice will also stop using CarPlay audio. Reconnect CarPlay for the change to take effect.</string>
+    <string name="settings_carplay_audio_output_description">On: play sound through CarPlay. Off: DiPlay sends video only; choose the car Bluetooth audio output on iPhone. CarPlay calls, Siri and navigation voice will also stop using CarPlay audio. Reconnect CarPlay for the change to take effect.</string>
     <string name="settings_nissan_audio_mode">Audio output mode</string>
     <string name="settings_nissan_audio_bluetooth">Car Bluetooth</string>
     <string name="settings_nissan_audio_carplay">CarPlay</string>
-    <string name="settings_nissan_audio_mode_description">Car Bluetooth: keep Bluetooth on and select the car audio output on iPhone; NiPlay receives video only. CarPlay: receive audio in NiPlay and turn off car Bluetooth after Wi-Fi handoff, the first video frame, and an audio stream are ready. Reconnect CarPlay to apply.</string>
+    <string name="settings_nissan_audio_mode_description">Car Bluetooth: keep Bluetooth on and select the car audio output on iPhone; DiPlay receives video only. CarPlay: receive audio in DiPlay and turn off car Bluetooth after Wi-Fi handoff, the first video frame, and an audio stream are ready. Reconnect CarPlay to apply.</string>
     <string name="settings_nissan_bluetooth_title">Nissan Bluetooth</string>
     <string name="settings_nissan_bluetooth_paired">Paired: %1$s</string>
     <string name="settings_nissan_bluetooth_none">No paired phone</string>

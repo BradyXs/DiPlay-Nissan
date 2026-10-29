@@ -20,11 +20,11 @@
     <string name="settings_carplay_answer_call">接听</string>
     <string name="settings_carplay_end_call">挂断 / 拒接</string>
     <string name="settings_carplay_audio_output">CarPlay 音频输出</string>
-    <string name="settings_carplay_audio_output_description">开启：声音通过 CarPlay 播放。关闭：NiPlay 只传画面；请在 iPhone 上选择车载蓝牙播放声音。关闭后，CarPlay 通话、Siri 和导航语音也不会通过 CarPlay 输出。重新连接 CarPlay 后生效。</string>
+    <string name="settings_carplay_audio_output_description">开启：声音通过 CarPlay 播放。关闭：DiPlay 只传画面；请在 iPhone 上选择车载蓝牙播放声音。关闭后，CarPlay 通话、Siri 和导航语音也不会通过 CarPlay 输出。重新连接 CarPlay 后生效。</string>
     <string name="settings_nissan_audio_mode">音频输出模式</string>
     <string name="settings_nissan_audio_bluetooth">车载蓝牙</string>
     <string name="settings_nissan_audio_carplay">CarPlay</string>
-    <string name="settings_nissan_audio_mode_description">车载蓝牙：保持蓝牙开启，在 iPhone 上选择车载蓝牙输出，NiPlay 只接收画面。CarPlay：由 NiPlay 接收音频，在 Wi-Fi 交接、首帧显示且音频流建立后关闭车机蓝牙。重新连接 CarPlay 后生效。</string>
+    <string name="settings_nissan_audio_mode_description">车载蓝牙：保持蓝牙开启，在 iPhone 上选择车载蓝牙输出，DiPlay 只接收画面。CarPlay：由 DiPlay 接收音频，在 Wi-Fi 交接、首帧显示且音频流建立后关闭车机蓝牙。重新连接 CarPlay 后生效。</string>
     <string name="settings_nissan_bluetooth_title">日产蓝牙</string>
     <string name="settings_nissan_bluetooth_paired">已配对：%1$s</string>
     <string name="settings_nissan_bluetooth_none">尚未配对手机</string>
