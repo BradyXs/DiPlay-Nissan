@@ -1,4 +1,4 @@
-name: Verify NiPlay release APK signature
+name: Verify NiPlay release APK
 
 on:
   release:
@@ -17,11 +17,7 @@ jobs:
   verify-release-signature:
     runs-on: ubuntu-latest
     steps:
-      - name: Install Android build tools
-        uses: android-actions/setup-android@v3
-      - name: Install APK signer
-        run: sdkmanager "build-tools;35.0.0"
-      - name: 检查 Release 中的 APK 数量
+      - name: 检查 Release 文件
         id: assets
         env:
           GH_TOKEN: ${{ github.token }}
@@ -34,10 +30,21 @@ jobs:
             echo "::error::Expected at most one release APK, got $count"
             exit 1
           fi
+          checksum_count=$(gh release view "$TAG" --repo "$REPOSITORY" --json assets --jq '[.assets[].name | select(endswith(".apk.sha256"))] | length')
+          if [ "$count" -eq 1 ] && [ "$checksum_count" -ne 1 ]; then
+            echo "::error::An APK release requires exactly one .apk.sha256 file."
+            exit 1
+          fi
           echo "has_apk=$([ "$count" -eq 1 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
           if [ "$count" -eq 0 ]; then
             echo "Source-only release; no APK signature to verify."
           fi
+      - name: 安装 Android 构建工具
+        if: steps.assets.outputs.has_apk == 'true'
+        uses: android-actions/setup-android@v3
+      - name: 安装 APK 校验工具
+        if: steps.assets.outputs.has_apk == 'true'
+        run: sdkmanager "build-tools;35.0.0"
       - name: 下载 Release APK
         if: steps.assets.outputs.has_apk == 'true'
         env:
@@ -47,18 +54,32 @@ jobs:
         run: |
           mkdir -p release-apk
           gh release download "$TAG" --repo "$REPOSITORY" --pattern '*.apk' --dir release-apk
-      - name: Verify signature against v0.2.21 identity
+          gh release download "$TAG" --repo "$REPOSITORY" --pattern '*.apk.sha256' --dir release-apk
+      - name: 核验校验值、签名和安装属性
         if: steps.assets.outputs.has_apk == 'true'
         env:
-          EXPECTED_SHA256: bca015c0cb43469fee55539b4054ff862671e7b41e6612eee0cb8566d327b7ae
+          EXPECTED_SHA256: f676c7bd731b97adedfbc198cf1f750c03a7a577ae037e644b29f8ac7e046fed
+          TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.event.release.tag_name }}
         run: |
           set -euo pipefail
+          (cd release-apk && sha256sum --check *.apk.sha256)
           apk=$(find release-apk -maxdepth 1 -type f -name '*.apk' -print -quit)
           signer="$ANDROID_HOME/build-tools/35.0.0/apksigner"
-          "$signer" verify --min-sdk-version 19 --print-certs "$apk" > certs.txt
+          "$signer" verify --min-sdk-version 19 --verbose --print-certs "$apk" > certs.txt
+          grep -q 'Verified using v1 scheme (JAR signing): true' certs.txt
           actual=$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' certs.txt | head -1 | tr -d '\r' | tr '[:upper:]' '[:lower:]')
           if [[ "$actual" != "$EXPECTED_SHA256" ]]; then
-            echo "::error::Release APK signing certificate differs from v0.2.21. Do not publish as an in-place upgrade."
+            echo "::error::Release APK signing certificate differs from the installed Nissan test package."
             exit 1
           fi
-          echo "Release certificate matches v0.2.21."
+          aapt="$ANDROID_HOME/build-tools/35.0.0/aapt"
+          "$aapt" dump badging "$apk" > badging.txt
+          grep -q "package: name='com.shihab.diplay.hudtest'.*versionName='${TAG#v}'" badging.txt
+          grep -Fxq "sdkVersion:'19'" badging.txt
+          grep -Fxq "native-code: 'armeabi-v7a'" badging.txt
+          "$aapt" dump xmltree "$apk" AndroidManifest.xml > manifest.txt
+          grep -q 'android:testOnly.*0x0' manifest.txt
+          unzip -Z1 "$apk" > entries.txt
+          grep -Fxq 'assets/offline-mfi/identity.pk8' entries.txt
+          grep -Fxq 'assets/offline-mfi/certificate.p7b' entries.txt
+          echo "Release APK matches the Nissan Android 4.4 package and its checksum."
