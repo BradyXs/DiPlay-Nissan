@@ -11,6 +11,10 @@ DiPlay-Nissan 基于 [DiPlay](https://github.com/shihabal3amri/DiPlay) 和 [DiPl
 
 公开源码不包含 MFi 认证材料或 Android 签名私钥。Release 中的 APK 内含运行所需认证文件；公开下载意味着这些文件可从 APK 中提取。已有安装的覆盖升级要求包名与签名证书一致。请只安装适用于日产 Android 4.4.3 / ARMv7 的版本。
 
+## 方向盘按键
+
+安装并打开 DiPlay 后，在设置中开启“方控”。随后长按车机关机键，持续按住，直到车机强制关闭并重新启动；重启后再测试方向盘按键。操作时车辆应处于停车状态。
+
 ## 构建
 
 先安装[构建指南](docs/BUILD.md)列出的 JDK、Android SDK 和 NDK。构建不含认证材料的源码包：
