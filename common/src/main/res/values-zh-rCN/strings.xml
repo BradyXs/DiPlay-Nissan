@@ -463,12 +463,12 @@
     <string name="view_diagnostic_report">查看报告</string>
     <string name="diagnostic_report_copy_hint">长按报告文本即可选择并复制。如果没有可用的分享应用，可以使用此方式。</string>
     <string name="wheel_keys_no_settings">此车机没有无障碍设置页面，请使用 ADB 按钮。</string>
-    <string name="wheel_key_assign">%1$s按键：%2$s · 点按以更改</string>
-    <string name="wheel_key_press">现在请按下用于%1$s的方向盘按键…</string>
-    <string name="wheel_key_role_siri">Siri</string>
-    <string name="wheel_key_none">无</string>
+
+
+
+
     <string name="wheel_siri_key">方向盘 Siri 按键</string>
-    <string name="wheel_siri_key_description">在 CarPlay 显示于屏幕时，用你选择的方向盘按键打开 Siri。车辆自身保留的按键只能配合方向盘按键服务使用，该服务在 CarPlay 处于后台时也可使用。未连接 CarPlay 或通话时，该按键保留车辆原有功能。</string>
+
     <string name="hotspot_network_not_ready">热点网络未就绪</string>
     <string name="first_tcp_timeout">等待 iPhone 接入 CarPlay 超时</string>
     <string name="wireless_startup_retries_exhausted">自动重试已停止，请检查连接后手动重试。</string>
@@ -518,7 +518,14 @@
     <string name="report_usb_copy_paths">另外保存到：\n%1$s</string>
     <string name="settings_detailed_diagnostics_title">详细播放日志</string>
     <string name="settings_detailed_diagnostics_description">记录高频视频及无线链路耗时。日常使用建议关闭；连接故障和卡顿仍会记录。</string>
-    <string name="settings_nissan_phone_key_probe">日产实体按键（实验性）</string>
-    <string name="settings_nissan_phone_key_probe_description">通过原厂用户行为服务接收切歌、电话和音量键，并原样转发原厂调用。切歌控制 CarPlay，无需切换原厂音源；原厂蓝牙电话空闲时，挂断键可拒接或结束 CarPlay 通话，响铃时接听键尝试接通并关闭原厂语音界面。音量键先记录，仍由原厂调整。更改后请重启车机。</string>
-    <string name="settings_nissan_phone_key_probe_failed">无法修改日产电话键诊断服务。</string>
+
+
+
+    <string name="settings_safe_area_connect_first">请先连接 CarPlay，再调整安全区域。</string>
+    <string name="settings_safe_area_hint">使用 CarPlay 画面调整安全区域，更改将在重新连接后生效。</string>
+    <string name="settings_safe_area_draw_outside_hint">允许 CarPlay 界面超出安全区域，更改将在重新连接后生效。</string>
+    <string name="settings_nissan_physical_keys">日产实体按键</string>
+    <string name="settings_nissan_physical_keys_description">启用日产实体按键转发，支持 CarPlay 切歌、电话和音量控制。按键事件先交给原厂服务；开启或关闭后，原厂服务可能需要重启车机才能重新选择接收方。</string>
+    <string name="settings_nissan_physical_keys_failed">无法更改日产实体按键转发。</string>
+    <string name="settings_nissan_phone_siri_description">启用日产实体按键后，无通话时按接听键唤醒 Siri；CarPlay 来电时按接听键接听。需要无线 CarPlay 音频，原厂电话优先。</string>
 </resources>

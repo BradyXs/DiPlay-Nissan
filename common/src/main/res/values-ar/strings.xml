@@ -436,12 +436,12 @@
     <string name="view_diagnostic_report">عرض التقرير</string>
     <string name="diagnostic_report_copy_hint">المس نص التقرير مطولاً لتحديده ونسخه. يمكنك استخدام ذلك إذا لم يتوفر تطبيق للمشاركة.</string>
     <string name="wheel_keys_no_settings">لا تحتوي هذه الوحدة على شاشة إعدادات تسهيل الاستخدام. استخدم زر ADB.</string>
-    <string name="wheel_key_assign">زر %1$s: %2$s · اضغط للتغيير</string>
-    <string name="wheel_key_press">اضغط الآن زر المقود الخاص بـ %1$s…</string>
-    <string name="wheel_key_role_siri">Siri</string>
-    <string name="wheel_key_none">لا شيء</string>
+
+
+
+
     <string name="wheel_siri_key">زر Siri على المقود</string>
-    <string name="wheel_siri_key_description">يفتح Siri بزر على المقود تختاره عندما تكون CarPlay على الشاشة. الزر الذي تحتفظ به السيارة لنفسها لا يعمل إلا مع خدمة أزرار المقود، التي تعمل أيضًا عندما تكون CarPlay في الخلفية. من دون CarPlay، أو أثناء مكالمة، يحتفظ الزر بوظيفته في السيارة.</string>
+
     <string name="carplay_dock">شريط تطبيقات CarPlay</string>
     <string name="carplay_dock_automatic">تلقائي</string>
     <string name="carplay_dock_driver_side">جهة السائق</string>
@@ -481,7 +481,14 @@
     <string name="settings_car_bluetooth_mac_invalid">يرجى إدخال عنوان MAC سداسي عشري صالح من 12 خانة.</string>
     <string name="settings_detailed_diagnostics_title">سجلات تشغيل مفصلة</string>
     <string name="settings_detailed_diagnostics_description">يسجل تفاصيل متكررة عن الفيديو والاتصال اللاسلكي. اتركه مغلقًا في الاستخدام العادي؛ تظل الأعطال والتوقفات مسجلة.</string>
-    <string name="settings_nissan_phone_key_probe">أزرار Nissan الفعلية (تجريبي)</string>
-    <string name="settings_nissan_phone_key_probe_description">يستقبل أزرار المقاطع والهاتف والصوت عبر الخدمة الأصلية مع تمرير استدعاءاتها. تتحكم أزرار المقاطع في CarPlay دون تغيير مصدر الصوت. عندما يكون هاتف Bluetooth الأصلي غير مشغول، ينهي زر الإغلاق المكالمة ويحاول زر الرد قبول المكالمة الواردة وإغلاق واجهة Nissan الصوتية. تُسجل أزرار الصوت بينما يظل النظام الأصلي مسؤولاً عن تعديل الصوت. أعد تشغيل وحدة السيارة بعد التغيير.</string>
-    <string name="settings_nissan_phone_key_probe_failed">تعذر تغيير تشخيص أزرار الهاتف في نيسان.</string>
+
+
+
+    <string name="settings_safe_area_connect_first">اتصل بـ CarPlay قبل تعديل المنطقة الآمنة.</string>
+    <string name="settings_safe_area_hint">عدّل المنطقة الآمنة على شاشة CarPlay. تُطبق التغييرات بعد إعادة الاتصال.</string>
+    <string name="settings_safe_area_draw_outside_hint">اسمح بعرض CarPlay خارج المنطقة الآمنة. تُطبق التغييرات بعد إعادة الاتصال.</string>
+    <string name="settings_nissan_physical_keys">أزرار Nissan الفعلية</string>
+    <string name="settings_nissan_physical_keys_description">يتيح تمرير أزرار Nissan للتحكم بمقاطع CarPlay والمكالمات والصوت. تستقبل الخدمة الأصلية الأحداث أولاً. قد يلزم إعادة تشغيل الوحدة بعد التغيير.</string>
+    <string name="settings_nissan_physical_keys_failed">تعذر تغيير تمرير أزرار Nissan.</string>
+    <string name="settings_nissan_phone_siri_description">عند تفعيل أزرار Nissan يفتح زر الرد Siri في غياب المكالمة ويرد على مكالمة CarPlay الواردة. يلزم صوت CarPlay اللاسلكي، وللهاتف الأصلي الأولوية.</string>
 </resources>

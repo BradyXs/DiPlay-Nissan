@@ -5,16 +5,10 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class NissanCallStreamRoutingTest {
-    @Test fun selectionAllowsAudibleVoiceStreamAndExplicitComparison() {
+    @Test fun fixedNissanVoiceStreamDoesNotDependOnCurrentVolume() {
         assertEquals(AudioManager.STREAM_VOICE_CALL,
-            NissanCallStreamRouting.streamType(NissanCallStreamMode.AUTO, 4))
+            NissanCallStreamRouting.streamType(NissanCallStreamMode.VOICE_CALL))
         assertEquals(AudioManager.STREAM_MUSIC,
-            NissanCallStreamRouting.streamType(NissanCallStreamMode.AUTO, 0))
-        assertEquals(AudioManager.STREAM_MUSIC,
-            NissanCallStreamRouting.streamType(NissanCallStreamMode.AUTO, null))
-        assertEquals(AudioManager.STREAM_VOICE_CALL,
-            NissanCallStreamRouting.streamType(NissanCallStreamMode.VOICE_CALL, 0))
-        assertEquals(AudioManager.STREAM_MUSIC,
-            NissanCallStreamRouting.streamType(NissanCallStreamMode.MEDIA, 4))
+            NissanCallStreamRouting.streamType(NissanCallStreamMode.MEDIA))
     }
 }

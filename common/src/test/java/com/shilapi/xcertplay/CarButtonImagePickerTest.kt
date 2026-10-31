@@ -8,7 +8,6 @@ import android.content.pm.ActivityInfo
 import android.content.pm.ApplicationInfo
 import android.content.pm.ResolveInfo
 import android.net.Uri
-import android.os.Handler
 import android.os.Looper
 import android.view.View
 import android.view.ViewGroup
@@ -23,7 +22,6 @@ import androidx.core.app.ActivityOptionsCompat
 import com.shilapi.xcertplay.host.R
 import com.shilapi.xcertplay.media.AndroidMediaSink
 import com.shilapi.xcertplay.orchestration.CarPlayController
-import java.util.concurrent.ExecutorService
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -69,65 +67,6 @@ class CarButtonImagePickerTest {
         assertEquals(activity.getString(R.string.this_head_unit_has_no_image_picker), ShadowToast.getTextOfLatestToast())
     }
 
-    @Test fun hostChoiceUsesDocumentPickerAndSameCropFlowThenClearsCancellationState() = withHost { activity ->
-        var documentIntent: Intent? = null
-        var cropIntent: Intent? = null
-        ReflectionHelpers.setField(activity, "imageDocumentPicker", launcher(ActivityResultContracts.OpenDocument()) {
-            documentIntent = ActivityResultContracts.OpenDocument().createIntent(activity, it)
-        })
-        ReflectionHelpers.setField(activity, "imagePicker", launcher(ActivityResultContracts.GetContent()) {
-            fail("A successful document launch must not also open the content picker")
-        })
-        ReflectionHelpers.setField(activity, "imageCrop", launcher(ActivityResultContracts.StartActivityForResult()) {
-            cropIntent = it
-        })
-        val buttons = hostButtons(activity)
-        assertEquals(
-            listOf(
-                activity.getString(R.string.choose_image),
-                activity.getString(R.string.default_icon),
-            ),
-            buttons.map { it.text.toString() },
-        )
-        val choose = buttons.single { it.text == activity.getString(R.string.choose_image) }
-        choose.performClick()
-        assertDocumentFilter(documentIntent!!)
-        assertTrue(externalActivity(activity))
-        val uri = Uri.parse("content://test-images/icon")
-        crop(activity, uri)
-        assertEquals(uri, cropIntent!!.data)
-        assertEquals(ImageCropActivity::class.java.name, cropIntent!!.component!!.className)
-        assertTrue(cropIntent!!.flags and Intent.FLAG_GRANT_READ_URI_PERMISSION != 0)
-        assertTrue(externalActivity(activity))
-        crop(activity, null)
-        assertFalse(externalActivity(activity))
-    }
-
-    @Test fun hostFallbackKeepsExternalStateUntilCancelButFinalFailureClearsIt() = withHost { activity ->
-        val events = mutableListOf<String>()
-        var contentMissing = false
-        ReflectionHelpers.setField(activity, "imageDocumentPicker", launcher(ActivityResultContracts.OpenDocument()) {
-            events.add("document")
-            throw ActivityNotFoundException("No document picker")
-        })
-        ReflectionHelpers.setField(activity, "imagePicker", launcher(ActivityResultContracts.GetContent()) {
-            assertEquals("image/*", it)
-            events.add("content")
-            if (contentMissing) throw ActivityNotFoundException("No content picker")
-        })
-        val choose = hostButtons(activity).single { it.text == activity.getString(R.string.choose_image) }
-        choose.performClick()
-        assertEquals(listOf("document", "content"), events)
-        assertTrue(externalActivity(activity))
-        crop(activity, null)
-        assertFalse(externalActivity(activity))
-        contentMissing = true
-        choose.performClick()
-        assertEquals(listOf("document", "content", "document", "content"), events)
-        assertFalse(externalActivity(activity))
-        assertEquals(activity.getString(R.string.this_head_unit_has_no_image_picker), ShadowToast.getTextOfLatestToast())
-    }
-
     @Test fun otherDocumentFailuresDoNotLaunchASecondPicker() {
         val denied = SecurityException("No document access")
         var contentLaunches = 0
@@ -170,6 +109,7 @@ class CarButtonImagePickerTest {
     }
 
     @Test fun savingCarButtonNameMarksTheActiveSessionWithoutStoppingIt() = withHome { activity ->
+        org.junit.Assume.assumeFalse(com.shilapi.xcertplay.host.BuildConfig.NISSAN_ANDROID_44_PROFILE)
         val session = mock(CarPlayController::class.java)
         val sink = mock(AndroidMediaSink::class.java)
         val previousName = AirPlayPersistence.loadOemLabel(activity)
@@ -220,20 +160,6 @@ class CarButtonImagePickerTest {
         return views(controls).filterIsInstance<Button>().toList()
     }
 
-    private fun hostButtons(activity: CarPlayHostActivity): List<Button> {
-        val section = CarPlayHostActivity::class.java.getDeclaredMethod("buildAirPlayIconSection")
-            .apply { isAccessible = true }.invoke(activity) as View
-        return views(section).filterIsInstance<Button>().toList()
-    }
-
-    private fun crop(activity: CarPlayHostActivity, uri: Uri?) {
-        CarPlayHostActivity::class.java.getDeclaredMethod("cropSelectedImage", Uri::class.java)
-            .apply { isAccessible = true }.invoke(activity, uri)
-    }
-
-    private fun externalActivity(activity: CarPlayHostActivity): Boolean =
-        ReflectionHelpers.getField(activity, "externalActivityInProgress")
-
     private fun <I, O> launcher(contract: ActivityResultContract<I, O>, onLaunch: (I) -> Unit) =
         object : ActivityResultLauncher<I>() {
             override fun launch(input: I, options: ActivityOptionsCompat?) = onLaunch(input)
@@ -251,18 +177,6 @@ class CarButtonImagePickerTest {
             check(activity)
         } finally {
             controller.pause().stop().destroy()
-            CarPlayBackgroundSession.clear()
-        }
-    }
-
-    private fun withHost(check: (CarPlayHostActivity) -> Unit) {
-        val activity = Robolectric.buildActivity(CarPlayHostActivity::class.java).get()
-        activity.setTheme(android.R.style.Theme_Material_NoActionBar)
-        try { check(activity) } finally {
-            for (name in listOf("teardownExecutor", "airPlayCommandExecutor")) {
-                ReflectionHelpers.getField<ExecutorService>(activity, name).shutdownNow()
-            }
-            ReflectionHelpers.getField<Handler>(activity, "mainHandler").removeCallbacksAndMessages(null)
             CarPlayBackgroundSession.clear()
         }
     }

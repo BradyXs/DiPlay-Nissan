@@ -18,7 +18,7 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 
-/** Opt-in relay for Nissan HMI key events reported through the user-behavior Binder. */
+/** Relay for Nissan HMI key events reported through the user-behavior Binder. */
 internal object NissanPhoneKeyProbe {
     private const val PREFS = "nissan_phone_key_probe"
     private const val ENABLED = "enabled"
@@ -57,6 +57,21 @@ internal object NissanPhoneKeyProbe {
     fun enabled(context: Context): Boolean = BuildConfig.NISSAN_ANDROID_44_PROFILE &&
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(ENABLED, false)
 
+    /** Enable for new Nissan installations while preserving an explicit user choice. */
+    fun ensureEnabled(context: Context) {
+        if (!BuildConfig.NISSAN_ANDROID_44_PROFILE) return
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val requested = if (prefs.contains(ENABLED)) prefs.getBoolean(ENABLED, false) else true
+        val component = ComponentName(context, NissanPhoneKeyProbeService::class.java)
+        val enabledComponent = runCatching {
+            context.packageManager.getComponentEnabledSetting(component) ==
+                PackageManager.COMPONENT_ENABLED_STATE_ENABLED
+        }.getOrDefault(false)
+        if (!prefs.contains(ENABLED) || requested != enabledComponent) setEnabled(context, requested)
+        else if (requested) NissanFirmwareHmiKeys.start(context)
+        else NissanFirmwareHmiKeys.stop()
+    }
+
     fun setEnabled(context: Context, value: Boolean): Boolean {
         if (!BuildConfig.NISSAN_ANDROID_44_PROFILE) return false
         return runCatching {
@@ -67,7 +82,8 @@ internal object NissanPhoneKeyProbe {
                 PackageManager.DONT_KILL_APP,
             )
             context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(ENABLED, value).apply()
-            record(context, "setting enabled=$value; reboot needed for OEM service selection")
+            if (value) NissanFirmwareHmiKeys.start(context) else NissanFirmwareHmiKeys.stop()
+            record(context, "setting enabled=$value; firmware callback starts immediately; OEM service selection needs reboot")
             true
         }.getOrElse {
             record(context, "setting failed error=${it.javaClass.simpleName}")
@@ -89,6 +105,7 @@ internal object NissanPhoneKeyProbe {
         return "Nissan phone key probe: enabled=${enabled(context)} localBound=$bound status=$status " +
             "received=${received.get()} forwarded=${forwarded.get()} failures=${failures.get()} " +
             "${NissanOemKeyRelay.summary()} " +
+            "${NissanFirmwareHmiKeys.summary()} " +
             "oemService=${NissanOemKeyRelay.serviceStatus(context, NissanPhoneKeyProbeService::class.java)} " +
             "preferred=$preferred candidates=[$matches]"
     }
@@ -213,6 +230,19 @@ internal object NissanPhoneKeyProbe {
     }
 
     internal fun onPhoneOperation(context: Context, operation: Int) {
+        if (NissanFirmwareHmiKeys.isActive() && shouldDispatchToDiPlay(operation)) {
+            record(context, "legacy event ignored; firmware callback active operation=$operation")
+            return
+        }
+        dispatchPhoneOperation(context, operation)
+    }
+
+    internal fun onFirmwareOperation(context: Context, operation: Int) {
+        if (!NissanFirmwareHmiKeys.isActive()) return
+        dispatchPhoneOperation(context, operation)
+    }
+
+    private fun dispatchPhoneOperation(context: Context, operation: Int) {
         if (!enabled(context)) return
         if (!shouldDispatchToDiPlay(operation)) return
         val current = CarPlayBackgroundSession.snapshot()
@@ -286,6 +316,7 @@ internal object NissanPhoneKeyProbe {
         if (operation == TEL_ON) {
             if (call == null) {
                 val siriReason = when {
+                    !WheelKeySettings.siriKey(context) -> "siri_key_disabled"
                     !CarPlayBackgroundSession.active || current == null -> "no_carplay_session"
                     !current.controller.isWirelessSession() -> "not_wireless"
                     !AirPlayPersistence.loadCarPlayAudioOutputEnabled(context) -> "carplay_audio_disabled"

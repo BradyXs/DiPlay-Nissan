@@ -49,6 +49,25 @@ class AdaptiveSettingsUiTest {
         assertTrue(texts(screen).any { it.text == screen.getString(R.string.settings_quick_settings) })
     }
 
+    @Test fun settingsOpenedFromCarPlayReturnToTheExistingSession() {
+        val session = mock(CarPlayController::class.java)
+        val sink = mock(AndroidMediaSink::class.java)
+        var stops = 0
+        CarPlayBackgroundSession.store(session, sink, 800, 480, Any(),
+            CarPlaySessionDisplay(800, 480, Surface.ROTATION_0, false, false, 800, 480)) { stops++ }
+        try {
+            val screen = Robolectric.buildActivity(DiPlayActivity::class.java,
+                Intent(context, DiPlayActivity::class.java).putExtra("page", "settings")
+                    .putExtra(SETTINGS_FROM_CARPLAY_EXTRA, true)).setup().get().also { activity = it }
+            screen.onBackPressedDispatcher.onBackPressed()
+            assertEquals(CarPlayHostActivity::class.java.name, shadowOf(screen).nextStartedActivity.component!!.className)
+            assertSame(session, CarPlayBackgroundSession.snapshot()?.controller)
+            assertEquals(0, stops)
+        } finally {
+            CarPlayBackgroundSession.clear()
+        }
+    }
+
     @Test fun readinessAsksForAnIphoneBeforeWirelessCanConnect() {
         AirPlayPersistence.saveWirelessEnabled(context, true)
         val screen = openSettings()
@@ -257,7 +276,7 @@ class AdaptiveSettingsUiTest {
                 screen.getString(R.string.settings_display)) }
             .performClick()
 
-        assertTrue(texts(screen).any { it.text == screen.getString(R.string.frame_rate) })
+        assertTrue(texts(screen).any { it.text.toString().startsWith(screen.getString(R.string.frame_rate) + " · ") })
     }
 
     @Test fun settingsLiveWhereDriversLookForThem() {
@@ -385,7 +404,7 @@ class AdaptiveSettingsUiTest {
 
         val currentRail = rail()
         val selected = advanced(currentRail)
-        assertFalse(previousRail === currentRail)
+        assertSame(previousRail, currentRail)
         assertTrue(selected.isSelected)
         assertTrue("D-pad focus must follow the selected category", selected.isFocused)
         assertTrue(currentRail.scrollY > 0)

@@ -498,12 +498,12 @@
     <string name="view_diagnostic_report">View report</string>
     <string name="diagnostic_report_copy_hint">Touch and hold the report text to select and copy it. You can use this if no sharing app is available.</string>
     <string name="wheel_keys_no_settings">This head unit has no accessibility settings screen. Use the ADB button.</string>
-    <string name="wheel_key_assign">Key for %1$s: %2$s · tap to change</string>
-    <string name="wheel_key_press">Press the wheel key for %1$s now…</string>
-    <string name="wheel_key_role_siri">Siri</string>
-    <string name="wheel_key_none">none</string>
+
+
+
+
     <string name="wheel_siri_key">Siri key on the wheel</string>
-    <string name="wheel_siri_key_description">Opens Siri with a wheel key you choose while CarPlay is on the screen. A key that the car keeps for itself works only with the wheel key service, which also works when CarPlay is in the background. Without CarPlay, or during a call, the key keeps the car\'s own action.</string>
+
     <string name="hotspot_network_not_ready">Hotspot network is not ready</string>
     <string name="first_tcp_timeout">The iPhone did not connect to CarPlay in time</string>
     <string name="wireless_startup_retries_exhausted">Automatic retries stopped. Check the connection and retry manually.</string>
@@ -553,7 +553,14 @@
     <string name="report_usb_copy_paths">Additional copies:\n%1$s</string>
     <string name="settings_detailed_diagnostics_title">Detailed playback logs</string>
     <string name="settings_detailed_diagnostics_description">Record frequent video and wireless timing details. Keep off for normal driving; connection failures and stalls are still recorded.</string>
-    <string name="settings_nissan_phone_key_probe">Nissan physical keys (experimental)</string>
-    <string name="settings_nissan_phone_key_probe_description">Receives track, phone and volume keys through the factory user-behavior service while forwarding its calls. Track keys control CarPlay without changing the factory audio source. When the factory Bluetooth phone is idle, the end key declines or ends CarPlay calls; the answer key attempts to answer a ringing call and dismiss factory voice control. Volume keys are logged while the factory still adjusts volume. Reboot the head unit after changing this setting.</string>
-    <string name="settings_nissan_phone_key_probe_failed">Could not change the Nissan phone-key probe.</string>
+
+
+
+    <string name="settings_safe_area_connect_first">Connect CarPlay before editing the safe area.</string>
+    <string name="settings_safe_area_hint">Edit the safe area using the CarPlay screen. Changes apply after reconnecting.</string>
+    <string name="settings_safe_area_draw_outside_hint">Allow CarPlay UI outside the safe area. Changes apply after reconnecting.</string>
+    <string name="settings_nissan_physical_keys">Nissan physical keys</string>
+    <string name="settings_nissan_physical_keys_description">Enables Nissan key forwarding for CarPlay track, phone and volume controls. Factory service receives events first. After enabling or disabling, the factory service may require a head-unit restart.</string>
+    <string name="settings_nissan_physical_keys_failed">Could not change Nissan physical key forwarding.</string>
+    <string name="settings_nissan_phone_siri_description">With Nissan physical keys enabled, the answer key opens Siri when there is no call. An incoming CarPlay call uses the same key to answer. Requires wireless CarPlay audio; factory phone calls take priority.</string>
 </resources>

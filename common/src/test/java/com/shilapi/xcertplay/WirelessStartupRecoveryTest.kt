@@ -76,13 +76,9 @@ class WirelessStartupRecoveryTest {
         assertEquals(View.VISIBLE, retry.visibility)
     }
 
-    @Test fun staleGenerationUserDisconnectMenuAndDifferentOwnerCannotSchedule() {
+    @Test fun staleGenerationUserDisconnectAndDifferentOwnerCannotSchedule() {
         report(1)
         assertEquals(0, budget().retries)
-        ReflectionHelpers.setField(activity, "menuOpen", true)
-        report()
-        assertEquals(0, budget().retries)
-        ReflectionHelpers.setField(activity, "menuOpen", false)
         ReflectionHelpers.getField<AtomicBoolean>(activity, "shuttingDown").set(true)
         report()
         assertEquals(0, budget().retries)

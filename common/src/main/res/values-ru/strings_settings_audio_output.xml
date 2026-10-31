@@ -6,19 +6,14 @@
     <string name="settings_nissan_navigation_hardware_volume_loading">Чтение…</string>
     <string name="settings_nissan_navigation_hardware_volume_unavailable">Недоступно</string>
     <string name="settings_carplay_call_volume">Громкость звонков CarPlay</string>
-    <string name="settings_nissan_call_stream_mode">Канал звонков (экспериментально)</string>
-    <string name="settings_nissan_call_stream_auto">Авто</string>
-    <string name="settings_nissan_call_stream_media">Медиапоток (3)</string>
-    <string name="settings_nissan_call_stream_voice">Речевой поток Android (0)</string>
-    <string name="settings_nissan_call_stream_mode_description">Авто использует речевой поток, если его громкость выше нуля; иначе медиапоток. Выберите канал для сравнения звука. Переподключите CarPlay.</string>
     <string name="settings_nissan_phone_hardware_volume">Заводская громкость телефона Nissan</string>
     <string name="settings_nissan_phone_hardware_volume_description">Заводской уровень телефона 0–15, меняется сразу и влияет на штатный телефон. Проверьте во время звонка, влияет ли он на CarPlay.</string>
     <string name="settings_carplay_volume_description">Ползунки сразу меняют громкость звуков CarPlay относительно громкости автомобиля. При фокусе на ползунке кнопки громкости меняют значение на 5 %. В режиме Bluetooth громкость регулирует автомобиль.</string>
-    <string name="settings_carplay_previous_track">Предыдущий</string>
-    <string name="settings_carplay_play_pause">Воспроизвести / пауза</string>
-    <string name="settings_carplay_next_track">Следующий</string>
-    <string name="settings_carplay_answer_call">Ответить</string>
-    <string name="settings_carplay_end_call">Завершить / отклонить</string>
+
+
+
+
+
     <string name="settings_carplay_audio_output">Вывод звука CarPlay</string>
     <string name="settings_carplay_audio_output_description">Включено: звук передаётся через CarPlay. Выключено: DiPlay передаёт только видео; выберите аудиосистему автомобиля Bluetooth на iPhone. Звук вызовов, Siri и навигационных подсказок также перестанет передаваться через CarPlay. Переподключите CarPlay, чтобы применить изменение.</string>
     <string name="settings_nissan_audio_mode">Режим вывода звука</string>

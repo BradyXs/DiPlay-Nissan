@@ -68,7 +68,6 @@ class CarPlayHostVideoSurfaceTest {
         assertEquals(bounds.top, params.topMargin)
         assertEquals(1920, viewport.width)
         assertEquals(942, viewport.height)
-        assertNull(field(activity, "pictureBinding"))
     }
 
     private fun observe(activity: CarPlayHostActivity, texture: TextureView) {

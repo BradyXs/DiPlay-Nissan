@@ -57,7 +57,6 @@ object AirPlayPersistence {
     private const val KEY_MEDIA_VOLUME_PERCENT = "media_volume_percent"
     private const val KEY_NAVIGATION_VOLUME_PERCENT = "navigation_volume_percent"
     private const val KEY_CALL_VOLUME_PERCENT = "call_volume_percent"
-    private const val KEY_NISSAN_CALL_STREAM_MODE = "nissan_call_stream_mode"
     private const val KEY_NAVIGATION_STREAM_TYPE = "navigation_stream_type"
     private const val KEY_WIRELESS_ENABLED = "wireless_enabled"
     private const val KEY_WIRELESS_HOTSPOT_MODE = "wireless_hotspot_mode"
@@ -197,20 +196,6 @@ object AirPlayPersistence {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
             .putInt(KEY_NAVIGATION_STREAM_TYPE, streamType)
             .apply()
-    }
-
-    fun loadNissanCallStreamMode(context: Context): com.shilapi.xcertplay.media.NissanCallStreamMode {
-        if (!com.shilapi.xcertplay.host.BuildConfig.NISSAN_ANDROID_44_PROFILE)
-            return com.shilapi.xcertplay.media.NissanCallStreamMode.MEDIA
-        val name = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .getString(KEY_NISSAN_CALL_STREAM_MODE, null)
-        return com.shilapi.xcertplay.media.NissanCallStreamMode.entries
-            .firstOrNull { it.name == name } ?: com.shilapi.xcertplay.media.NissanCallStreamMode.MEDIA
-    }
-
-    fun saveNissanCallStreamMode(context: Context, mode: com.shilapi.xcertplay.media.NissanCallStreamMode) {
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-            .putString(KEY_NISSAN_CALL_STREAM_MODE, mode.name).apply()
     }
 
     fun loadCustomBluetoothMac(context: Context): String? =

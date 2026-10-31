@@ -34,7 +34,6 @@ class WheelSiriWindowTest {
         host.getSharedPreferences("diplay_wheel_map_zoom", Context.MODE_PRIVATE).edit().clear().commit()
         host.getSharedPreferences("xcertplay_airplay", Context.MODE_PRIVATE).edit().clear().commit()
         WheelKeySettings.setSiriKey(host, true)
-        WheelKeySettings.assignSiriKey(host, WheelKey(KeyEvent.KEYCODE_F6, 0, "?"))
         host.getSystemService(AudioManager::class.java).mode = AudioManager.MODE_NORMAL
         controller = mock(CarPlayController::class.java)
         `when`(controller.requestSiri()).thenReturn(true)
@@ -53,56 +52,11 @@ class WheelSiriWindowTest {
         host.getSharedPreferences("xcertplay_airplay", Context.MODE_PRIVATE).edit().clear().commit()
     }
 
-    @Test fun heldAssignedKeyKeepsItsReleaseAfterCallSessionAndSettingChanges() {
-        assertTrue(host.dispatchKeyEvent(key(KeyEvent.KEYCODE_F6, true)))
-        WheelKeySettings.setSiriKey(host, false)
-        field("activeAirPlaySession", null)
-        host.getSystemService(AudioManager::class.java).mode = AudioManager.MODE_IN_CALL
-        assertTrue(host.dispatchKeyEvent(key(KeyEvent.KEYCODE_F6, true, repeat = 1)))
-        assertTrue(host.dispatchKeyEvent(key(KeyEvent.KEYCODE_F6, false)))
-        verify(controller, times(1)).requestSiri()
-    }
-
-    @Test fun anAssignedStandardVoiceKeyDoesNotAlsoInvokeTheLegacyReleasePath() {
-        val code = KeyEvent.KEYCODE_VOICE_ASSIST
-        WheelKeySettings.assignSiriKey(host, WheelKey(code, 0, "?"))
-        assertTrue(host.dispatchKeyEvent(key(code, true)))
-        assertTrue(host.dispatchKeyEvent(key(code, false)))
-        verify(controller, times(1)).requestSiri()
-    }
-
     @Test fun anUnassignedVoiceKeyKeepsItsExistingReleaseBehavior() {
         WheelKeySettings.setSiriKey(host, false)
         assertTrue(host.dispatchKeyEvent(key(KeyEvent.KEYCODE_VOICE_ASSIST, true)))
         assertTrue(host.dispatchKeyEvent(key(KeyEvent.KEYCODE_VOICE_ASSIST, false)))
         verify(controller, times(1)).requestSiri()
-    }
-
-    @Test fun windowLearningConsumesRepeatsAndReleaseAfterAssignmentFinishes() {
-        var learned = 0
-        learn { learned++ }
-        assertTrue(settings.dispatchKeyEvent(key(KeyEvent.KEYCODE_F7, true)))
-        assertTrue(settings.dispatchKeyEvent(key(KeyEvent.KEYCODE_F7, true, repeat = 1)))
-        assertTrue(settings.dispatchKeyEvent(key(KeyEvent.KEYCODE_F7, false)))
-        assertEquals(1, learned)
-        assertEquals(KeyEvent.KEYCODE_F7, WheelKeySettings.key(settings)?.code)
-    }
-
-    @Test fun aCallCancelsWindowLearningWithoutSavingTheCallKey() {
-        var learned = 0
-        learn { learned++ }
-        settings.getSystemService(AudioManager::class.java).mode = AudioManager.MODE_IN_CALL
-        settings.dispatchKeyEvent(key(KeyEvent.KEYCODE_F7, true))
-        settings.dispatchKeyEvent(key(KeyEvent.KEYCODE_F7, false))
-        assertEquals(0, learned)
-        assertEquals(KeyEvent.KEYCODE_F6, WheelKeySettings.key(settings)?.code)
-    }
-
-    private fun learn(done: (WheelKey) -> Unit) {
-        settings.javaClass.getDeclaredMethod("learnInWindow",
-            kotlin.jvm.functions.Function0::class.java, kotlin.jvm.functions.Function1::class.java)
-            .apply { isAccessible = true }
-            .invoke(settings, {}, done)
     }
 
     private fun field(name: String, value: Any?) = host.javaClass.getDeclaredField(name)

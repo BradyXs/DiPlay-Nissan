@@ -447,12 +447,12 @@
     <string name="view_diagnostic_report">Переглянути звіт</string>
     <string name="diagnostic_report_copy_hint">Натисніть і утримуйте текст звіту, щоб виділити та скопіювати його. Це можна використати, якщо немає застосунку для надсилання.</string>
     <string name="wheel_keys_no_settings">На цьому головному пристрої немає екрана спеціальних можливостей. Скористайтеся кнопкою ADB.</string>
-    <string name="wheel_key_assign">Кнопка «%1$s»: %2$s · натисніть, щоб змінити</string>
-    <string name="wheel_key_press">Натисніть зараз кнопку керма для «%1$s»…</string>
-    <string name="wheel_key_role_siri">Siri</string>
-    <string name="wheel_key_none">немає</string>
+
+
+
+
     <string name="wheel_siri_key">Кнопка Siri на кермі</string>
-    <string name="wheel_siri_key_description">Відкриває Siri кнопкою на кермі, яку ви оберете, поки CarPlay на екрані. Кнопка, яку автомобіль залишає собі, працює лише зі службою кнопок керма; служба працює й коли CarPlay у фоні. Без CarPlay або під час дзвінка кнопка зберігає свою дію в автомобілі.</string>
+
     <string name="carplay_dock">Панель програм CarPlay</string>
     <string name="carplay_dock_automatic">Автоматично</string>
     <string name="carplay_dock_driver_side">З боку водія</string>
@@ -492,7 +492,14 @@
     <string name="settings_car_bluetooth_mac_invalid">Будь ласка, введіть дійсний 12-значний шістнадцятковий MAC-адрес.</string>
     <string name="settings_detailed_diagnostics_title">Докладні журнали відтворення</string>
     <string name="settings_detailed_diagnostics_description">Записує часті дані про відео та бездротовий зв’язок. Зазвичай тримайте вимкненим; збої та зависання все одно записуються.</string>
-    <string name="settings_nissan_phone_key_probe">Фізичні кнопки Nissan (експериментально)</string>
-    <string name="settings_nissan_phone_key_probe_description">Отримує кнопки треків, телефону й гучності через штатну службу та передає її виклики. Треки керують CarPlay без зміни джерела. Якщо штатний телефон Bluetooth вільний, завершення скидає виклик, а відповідь намагається прийняти вхідний виклик і закрити голосовий інтерфейс Nissan. Гучність поки лише записується та змінюється штатною системою. Після зміни перезавантажте пристрій.</string>
-    <string name="settings_nissan_phone_key_probe_failed">Не вдалося змінити діагностику кнопок виклику Nissan.</string>
+
+
+
+    <string name="settings_safe_area_connect_first">Підключіть CarPlay перед налаштуванням безпечної області.</string>
+    <string name="settings_safe_area_hint">Налаштуйте безпечну область на екрані CarPlay. Зміни набудуть чинності після перепідключення.</string>
+    <string name="settings_safe_area_draw_outside_hint">Дозволити інтерфейс за межами безпечної області. Зміни набудуть чинності після перепідключення.</string>
+    <string name="settings_nissan_physical_keys">Фізичні кнопки Nissan</string>
+    <string name="settings_nissan_physical_keys_description">Вмикає передавання кнопок Nissan для треків, дзвінків і гучності CarPlay. Штатна служба отримує події першою. Після зміни може знадобитися перезавантаження пристрою.</string>
+    <string name="settings_nissan_physical_keys_failed">Не вдалося змінити передавання кнопок Nissan.</string>
+    <string name="settings_nissan_phone_siri_description">Коли кнопки Nissan увімкнені, кнопка відповіді відкриває Siri поза дзвінком і приймає вхідний виклик CarPlay. Потрібен бездротовий звук CarPlay; штатний телефон має пріоритет.</string>
 </resources>

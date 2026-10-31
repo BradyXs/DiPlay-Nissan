@@ -942,11 +942,10 @@ class AndroidMediaSink(
         }
         val callLevel = runCatching { audioManager?.getStreamVolume(AudioManager.STREAM_VOICE_CALL) }.getOrNull()
         val callMax = runCatching { audioManager?.getStreamMaxVolume(AudioManager.STREAM_VOICE_CALL) }.getOrNull()
-        val chosen = NissanCallStreamRouting.streamType(nissanCallStreamMode, callLevel)
+        val chosen = NissanCallStreamRouting.streamType(nissanCallStreamMode)
         runCatching { onAudioDiagnostic(
             "Audio: Nissan call stream mode=$nissanCallStreamMode selected=${if (chosen == AudioManager.STREAM_VOICE_CALL) "VOICE_CALL(0)" else "MUSIC(3)"} " +
                 "androidCallVolume=${callLevel ?: "unknown"}/${callMax ?: "unknown"} " +
-                "autoFallback=${nissanCallStreamMode == NissanCallStreamMode.AUTO && chosen == AudioManager.STREAM_MUSIC} " +
                 "oemPhoneVolumeIndependent=true",
         ) }
         return chosen

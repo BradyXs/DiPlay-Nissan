@@ -21,7 +21,7 @@ internal object NissanOemVoiceUi {
         Thread({
             val log = SessionLogFile(File(File(app.filesDir, "logs"), "diplay.log"))
             try { Thread.sleep(350L) } catch (_: InterruptedException) { onFailed(); return@Thread }
-            if (!siriSessionActive(controller)) { onFailed(); return@Thread }
+            if (!siriSessionActive(app, controller)) { onFailed(); return@Thread }
             val service = voiceService()
             val vrBefore = service?.let { runCatching { isVrStarted(it) }.getOrNull() }
             val stopped = if (vrBefore == true) service?.let { runCatching { stopSrView(it) }.getOrDefault(false) } else false
@@ -30,13 +30,13 @@ internal object NissanOemVoiceUi {
             if (stopped == true) {
                 try { Thread.sleep(200L) } catch (_: InterruptedException) { onFailed(); return@Thread }
             }
-            if (!siriSessionActive(controller)) { onFailed(); return@Thread }
+            if (!siriSessionActive(app, controller)) { onFailed(); return@Thread }
             val sent = controller.requestSiri()
             AsyncDiagnosticLog.append(log, "Siri: OEM phone key request queued=$sent")
             if (!sent) { onFailed(); return@Thread }
             // hideVR is rate-limited by the OEM for one second after startVR.
             try { Thread.sleep(900L) } catch (_: InterruptedException) { return@Thread }
-            if (!siriSessionActive(controller)) return@Thread
+            if (!siriSessionActive(app, controller)) return@Thread
             val vrAfter = service?.let { runCatching { isVrStarted(it) }.getOrNull() }
             val hidden = if (vrAfter == true) service?.let { runCatching { hideVr(it) }.getOrDefault(false) } else false
             AsyncDiagnosticLog.append(log,
@@ -44,8 +44,9 @@ internal object NissanOemVoiceUi {
         }, "nissan-phone-key-siri").apply { isDaemon = true; start() }
     }
 
-    private fun siriSessionActive(controller: CarPlayController): Boolean =
-        CarPlayBackgroundSession.active &&
+    private fun siriSessionActive(context: Context, controller: CarPlayController): Boolean =
+        NissanPhoneKeyProbe.enabled(context) && WheelKeySettings.siriKey(context) &&
+            CarPlayBackgroundSession.active &&
             CarPlayBackgroundSession.snapshot()?.controller === controller &&
             controller.activeAirPlaySessionToken() != null &&
             controller.currentCallSnapshot() == null

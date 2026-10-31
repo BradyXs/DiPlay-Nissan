@@ -6,19 +6,14 @@
     <string name="settings_nissan_navigation_hardware_volume_loading">读取中…</string>
     <string name="settings_nissan_navigation_hardware_volume_unavailable">不可用</string>
     <string name="settings_carplay_call_volume">CarPlay 通话音量</string>
-    <string name="settings_nissan_call_stream_mode">通话音频通道（实验性）</string>
-    <string name="settings_nissan_call_stream_auto">自动</string>
-    <string name="settings_nissan_call_stream_media">媒体通道（3）</string>
-    <string name="settings_nissan_call_stream_voice">Android 通话通道（0）</string>
-    <string name="settings_nissan_call_stream_mode_description">自动模式在 Android 通话流音量大于 0 时优先使用它，否则走媒体流。可分别选择通道比较通话声音；重新连接 CarPlay 后生效。</string>
     <string name="settings_nissan_phone_hardware_volume">日产原厂电话音量</string>
     <string name="settings_nissan_phone_hardware_volume_description">原厂电话音量，范围 0–15，立即生效。它也会改变原厂电话声音；是否影响 CarPlay 通话需在通话中实测。</string>
     <string name="settings_carplay_volume_description">滑动调节三类 CarPlay 声音相对车机音量的大小，立即生效。进度条获得焦点时，音量键可按 5% 调节。车载蓝牙模式的音量由车机控制。</string>
-    <string name="settings_carplay_previous_track">上一首</string>
-    <string name="settings_carplay_play_pause">播放 / 暂停</string>
-    <string name="settings_carplay_next_track">下一首</string>
-    <string name="settings_carplay_answer_call">接听</string>
-    <string name="settings_carplay_end_call">挂断 / 拒接</string>
+
+
+
+
+
     <string name="settings_carplay_audio_output">CarPlay 音频输出</string>
     <string name="settings_carplay_audio_output_description">开启：声音通过 CarPlay 播放。关闭：DiPlay 只传画面；请在 iPhone 上选择车载蓝牙播放声音。关闭后，CarPlay 通话、Siri 和导航语音也不会通过 CarPlay 输出。重新连接 CarPlay 后生效。</string>
     <string name="settings_nissan_audio_mode">音频输出模式</string>
