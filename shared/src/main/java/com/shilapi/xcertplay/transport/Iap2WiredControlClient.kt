@@ -79,6 +79,16 @@ class Iap2WiredControlClient(
         val vehicleStatus = Iap2VehicleStatusReporter(vehicleStatusProvider, onProgress)
         try {
             while (true) {
+                // Check even when the phone continuously sends iAP2 messages: a busy
+                // control channel must not hide a missing AirPlay session indefinitely.
+                if (carPlayStartSessions > 0 && !airPlayTcpArrived() &&
+                    System.nanoTime() - startSessionNanos >= WIRED_FIRST_TCP_MILLIS * NANOS_PER_MILLISECOND
+                ) {
+                    onProgress("iap2 wired no AirPlay session ${WIRED_FIRST_TCP_MILLIS}ms after carplay-start-session forwarded=$forwardedFrames starts=$carPlayStartSessions")
+                    return Iap2WiredControlResult(
+                        Iap2WiredControlTerminal.NO_AIRPLAY_TCP, stage, forwardedFrames, carPlayStartSessions,
+                    )
+                }
                 val remaining = remainingMillis(deadlineNanos)
                 if (remaining == 0L) {
                     return Iap2WiredControlResult(Iap2WiredControlTerminal.TIMED_OUT, stage, forwardedFrames, carPlayStartSessions)
@@ -92,7 +102,10 @@ class Iap2WiredControlClient(
                     onProgress("iap2 wired startup timed out waiting for CarPlay availability")
                     return Iap2WiredControlResult(Iap2WiredControlTerminal.TIMED_OUT, stage, forwardedFrames, carPlayStartSessions)
                 }
-                val pollTimeout = vehicleStatus.pollTimeout(location.pollTimeout(minOf(remaining, startupRemaining)))
+                val boundedRemaining = if (carPlayStartSessions > 0 && !airPlayTcpArrived()) {
+                    minOf(remaining, startupRemaining, 1_000L)
+                } else minOf(remaining, startupRemaining)
+                val pollTimeout = vehicleStatus.pollTimeout(location.pollTimeout(boundedRemaining))
                 val incoming = try {
                     session.recv(pollTimeout)
                 } catch (failure: IOException) {
@@ -141,19 +154,6 @@ class Iap2WiredControlClient(
                         keptLinkAfterSilence = true
                         onProgress("iap2 wired peer silent for ${silenceMonitor.idleMillis()}ms " +
                             "but AirPlay media is still arriving; keeping the link")
-                    }
-                    // Issue #95: iPhone alive on iAP2 but no AirPlay TCP — fail fast with a
-                    // clear message instead of idling until the USB stack wedges.
-                    if (carPlayStartSessions > 0 && !airPlayTcpArrived() &&
-                        System.nanoTime() - startSessionNanos >= WIRED_FIRST_TCP_MILLIS * NANOS_PER_MILLISECOND
-                    ) {
-                        onProgress("iap2 wired no AirPlay TCP ${WIRED_FIRST_TCP_MILLIS}ms after carplay-start-session")
-                        return Iap2WiredControlResult(
-                            Iap2WiredControlTerminal.NO_AIRPLAY_TCP,
-                            stage,
-                            forwardedFrames,
-                            carPlayStartSessions,
-                        )
                     }
                     continue
                 }

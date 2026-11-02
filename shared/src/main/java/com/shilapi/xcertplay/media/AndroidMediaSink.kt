@@ -1038,6 +1038,10 @@ private class VideoDecoder(
     private var lastQueuedNanos = 0L
     private var resumedAtNanos = 0L
     private var lastQueuedLocalNanos = 0L
+    // Only continuous submitted input can demonstrate a decoder output stall.
+    private var inputWithoutOutput = 0
+    private var inputWithoutOutputSinceNs = 0L
+    private var outputStallRebuildUsed = false
     private val queue = VideoDecodeQueue()
     @Volatile private var running = true
     @Volatile private var decoder: MediaCodec? = null
@@ -1439,6 +1443,12 @@ private class VideoDecoder(
             val presentationUs = if (presentNs > 0) presentNs / 1000 else System.nanoTime() / 1000
             codec.queueInputBuffer(index, 0, annexB.size, presentationUs, 0)
             val queuedNow = System.nanoTime()
+            if (lastQueuedNanos == 0L || queuedNow - lastQueuedNanos > STILL_GAP_NS) {
+                inputWithoutOutput = 0
+                inputWithoutOutputSinceNs = queuedNow
+            }
+            if (inputWithoutOutputSinceNs == 0L) inputWithoutOutputSinceNs = queuedNow
+            inputWithoutOutput++
             if (lastQueuedNanos != 0L && queuedNow - lastQueuedNanos > STILL_GAP_NS) resumedAtNanos = queuedNow
             lastQueuedNanos = queuedNow
             queuedPresentationUs[queuedSlot] = presentationUs
@@ -1472,6 +1482,24 @@ private class VideoDecoder(
             return
         }
         drainOutput(codec)
+        val nowNs = System.nanoTime()
+        if (outputSurface != null && outputSurface !== parking?.surface &&
+            surfaceAttachedAtNs > 0L && nowNs - surfaceAttachedAtNs >= OUTPUT_STALL_SURFACE_GRACE_NS &&
+            inputWithoutOutput >= OUTPUT_STALL_MIN_FRAMES && inputWithoutOutputSinceNs > 0L &&
+            nowNs - inputWithoutOutputSinceNs >= OUTPUT_STALL_NS && !outputStallRebuildUsed
+        ) {
+            outputStallRebuildUsed = true
+            report("decoder_output_stall stream=$streamType inputFrames=$inputWithoutOutput " +
+                "durationMs=${(nowNs - inputWithoutOutputSinceNs) / 1_000_000} action=rebuild_once")
+            // A wedged decoder can remain stuck even after an IDR was requested. One rebuild
+            // is allowed until output resumes; it still uses the normal keyframe request limit.
+            releaseDecoder()
+            referenceChain.reset()
+            stats.onRecovery()
+            inputWithoutOutput = 0
+            inputWithoutOutputSinceNs = 0L
+            requestKeyFrameIfDue("decoder_output_stall")
+        }
     }
 
     private fun recover(reason: String, allowRebuild: Boolean = true) {
@@ -1525,6 +1553,9 @@ private class VideoDecoder(
                 index == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> logOutputFormat(codec.outputFormat)
                 index >= 0 -> {
                     val codecOutputAtNs = System.nanoTime()
+                    inputWithoutOutput = 0
+                    inputWithoutOutputSinceNs = 0L
+                    outputStallRebuildUsed = false
                     stats.onCodecOutput()
                     val render = outputSurface != null
                     // Parked output goes to the offscreen consumer: it keeps the codec's state, but it is
@@ -1644,6 +1675,9 @@ private class VideoDecoder(
         const val MAX_INPUT_SIZE = 8 * 1024 * 1024
         const val INPUT_TIMEOUT_US = 10_000L
         const val MAX_FRAME_AGE_NS = 250_000_000L
+        const val OUTPUT_STALL_MIN_FRAMES = 30
+        const val OUTPUT_STALL_NS = 1_500_000_000L
+        const val OUTPUT_STALL_SURFACE_GRACE_NS = 3_500_000_000L
         const val KEYFRAME_REQUEST_COOLDOWN_NS = 1_000_000_000L
         // A paced frame more than this ahead is treated as a bad mapping and shown at once.
         const val MAX_PACING_AHEAD_NS = 1_000_000_000L

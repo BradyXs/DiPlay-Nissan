@@ -2033,6 +2033,7 @@ class CarPlayController(
 
     private fun runStack(usbSession: Iap2UsbSession, ncm: NcmUsbBridge) {
         phase = Phase.CONTROL
+        wiredTcpArrived.set(false)
         var ncmOwnedLocally = true
         try {
             if (closed) return
@@ -2190,14 +2191,16 @@ class CarPlayController(
                 onIncoming = ::onRouteFrame,
                 onProgress = { message ->
                     debugLog("wired $message")
-                    if (message.contains("carplay-start-session")) {
+                    if (message == "iap2 tx=0x4301 carplay-start-session") {
                         vpnService?.sendUnsolicitedNeighborAdvertisement(force = true)
-                        wiredTcpArrived.set(false)
                     }
                 },
                 airPlayTcpArrived = { wiredTcpArrived.get() },
                 airPlayDataRecent = AirPlayMediaActivity::recent,
             )
+            debugLog("wired control ended terminal=${result.terminal} stage=${result.stage} " +
+                "forwarded=${result.forwardedFrames} starts=${result.carPlayStartSessionsSent} " +
+                "airPlaySessionActive=${wiredTcpArrived.get()}")
             onStatus(
                 when (result.terminal) {
                     Iap2WiredControlTerminal.TIMED_OUT ->
