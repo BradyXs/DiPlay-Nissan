@@ -8,8 +8,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class NissanSeekAudioRoutingTest {
-    @Test fun assistantDoesNotAdjustNavigationVolume() {
-        assertEquals(Target.BLOCKED, NissanSeekAudioRouting.target(null, "assistant"))
+    @Test fun assistantChannelKeepsMediaKeysAvailable() {
+        assertEquals(Target.MEDIA, NissanSeekAudioRouting.target(null, "assistant"))
     }
     @Test fun activeCallTakesPriorityOverGuidanceAndRingingBlocksMusicKeys() {
         assertEquals(Target.CALL, NissanSeekAudioRouting.target(CarPlayCallPhase.ACTIVE, "navigation"))

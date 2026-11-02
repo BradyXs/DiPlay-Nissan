@@ -16,10 +16,13 @@ internal object NissanFirmwareHmiKeys {
     private const val SERVICE = "com.hsae.auto.IBINDER_HMI"
     private const val HMI_DESCRIPTOR = "com.hsae.autosdk.hmi.IHmi"
     private const val CALLBACK_DESCRIPTOR = "com.hsae.autosdk.hmi.IHmiCallback"
+    private const val ARBITRATION_QUERY = 0x00d15001
+    private const val ARBITRATION_COMMIT = 0x00d15002
     private const val CAPABILITY = 0x62ff
     private const val EVENT_BASE = 0x6200
     private const val RETRY_MS = 5_000L
     private val received = AtomicInteger()
+    @Volatile private var lastArbitrationEvent = 0L
     private val main = Handler(Looper.getMainLooper())
 
     @Volatile private var generation = 0
@@ -64,12 +67,37 @@ internal object NissanFirmwareHmiKeys {
                     service = currentBinder
                     active = false
                     status = "registering"
+                    lastArbitrationEvent = 0L
                     callback = object : Binder() {
                         init { attachInterface(null, CALLBACK_DESCRIPTOR) }
 
                         override fun onTransact(code: Int, data: Parcel, reply: Parcel?, flags: Int): Boolean {
                             if (code == INTERFACE_TRANSACTION) {
                                 reply?.writeString(CALLBACK_DESCRIPTOR)
+                                return true
+                            }
+                            if (code == ARBITRATION_QUERY || code == ARBITRATION_COMMIT) {
+                                // AutoCore runs as android.uid.system on the P350.
+                                if (Binder.getCallingUid() != 1000) return false
+                                data.enforceInterface(CALLBACK_DESCRIPTOR)
+                                val version = data.readInt()
+                                val operation = data.readInt()
+                                if (code == ARBITRATION_QUERY) {
+                                    val eligible = version == 1 && operation == 27 && generation == token &&
+                                        isActive() && NissanPhoneKeyProbe.canArbitrateAnswer(context)
+                                    reply?.writeNoException()
+                                    reply?.writeInt(if (eligible) 1 else 0)
+                                    record(context, "arbitration query eligible=$eligible version=$version operation=$operation")
+                                } else {
+                                    val event = data.readLong()
+                                    val accepted = synchronized(this) {
+                                        if (version != 1 || operation != 27 || generation != token || !isActive() ||
+                                            event <= lastArbitrationEvent) false
+                                        else { lastArbitrationEvent = event; true }
+                                    }
+                                    record(context, "arbitration commit id=$event accepted=$accepted operation=$operation")
+                                    if (accepted) main.post { if (generation == token && isActive()) NissanPhoneKeyProbe.onArbitratedAnswer(context) }
+                                }
                                 return true
                             }
                             if (code != 2) return super.onTransact(code, data, reply, flags)

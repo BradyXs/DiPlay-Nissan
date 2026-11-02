@@ -242,6 +242,45 @@ internal object NissanPhoneKeyProbe {
         dispatchPhoneOperation(context, operation)
     }
 
+    /** Pure eligibility query: a timed-out query must never trigger an action. */
+    internal fun canArbitrateAnswer(context: Context): Boolean {
+        if (!enabled(context) || !CarPlayBackgroundSession.active) return false
+        val current = CarPlayBackgroundSession.snapshot() ?: return false
+        val controller = current.controller
+        if (!controller.isWirelessSession() || !AirPlayPersistence.loadCarPlayAudioOutputEnabled(context) ||
+            controller.activeAirPlaySessionToken() == null || NissanOemPhoneDiagnostics.currentPhoneState() != 0) return false
+        val call = controller.currentCallSnapshot()
+        return if (call == null) WheelKeySettings.siriKey(context) else call.phase == CarPlayCallPhase.RINGING
+    }
+
+    /** The firmware has already consumed this key; never run the legacy OEM-voice workaround. */
+    internal fun onArbitratedAnswer(context: Context) {
+        if (!canArbitrateAnswer(context)) {
+            record(context, "arbitration commit dropped reason=session_changed")
+            return
+        }
+        val controller = CarPlayBackgroundSession.snapshot()?.controller ?: return
+        val call = controller.currentCallSnapshot()
+        if (call == null) {
+            val now = SystemClock.elapsedRealtime()
+            if (!siriGate.claim(controller, now)) {
+                record(context, "arbitration Siri ignored reason=duplicate")
+                return
+            }
+            val sent = controller.requestSiri()
+            if (!sent) siriGate.release(controller, now)
+            record(context, "arbitration Siri queued=$sent")
+        } else if (call.phase == CarPlayCallPhase.RINGING) {
+            if (!answerGate.claim(controller, call.epoch)) {
+                record(context, "arbitration answer ignored reason=duplicate")
+                return
+            }
+            val sent = controller.answerCall()
+            if (!sent) answerGate.release(controller, call.epoch)
+            record(context, "arbitration answer sent=$sent")
+        }
+    }
+
     private fun dispatchPhoneOperation(context: Context, operation: Int) {
         if (!enabled(context)) return
         if (!shouldDispatchToDiPlay(operation)) return
@@ -271,7 +310,8 @@ internal object NissanPhoneKeyProbe {
             val channel = session.sink.nissanActiveAudioChannel()
             val target = NissanSeekAudioRouting.target(call?.phase, channel)
             if (target == NissanSeekAudioRouting.Target.BLOCKED) {
-                record(context, "CarPlay seek operation=$operation action=blocked reason=call_ringing")
+                record(context, "CarPlay seek operation=$operation action=blocked reason=call_ringing " +
+                    "callPhase=${call?.phase ?: "NONE"} channel=$channel target=$target")
                 return
             }
             if (target == NissanSeekAudioRouting.Target.CALL ||
@@ -287,7 +327,7 @@ internal object NissanPhoneKeyProbe {
                 if (after == before) {
                     NissanCarPlayVolumeOverlay.show(context, target, after)
                     record(context, "CarPlay seek operation=$operation action=volume target=$target " +
-                        "channel=$channel before=$before after=$after applied=false reason=limit")
+                        "callPhase=${call?.phase ?: "NONE"} channel=$channel before=$before after=$after applied=false reason=limit")
                     return
                 }
                 val applied = runCatching {
@@ -303,14 +343,15 @@ internal object NissanPhoneKeyProbe {
                 }.getOrElse { false }
                 if (applied) NissanCarPlayVolumeOverlay.show(context, target, after)
                 record(context, "CarPlay seek operation=$operation action=volume target=$target " +
-                    "channel=$channel before=$before after=$after applied=$applied")
+                    "callPhase=${call?.phase ?: "NONE"} channel=$channel before=$before after=$after applied=$applied")
                 return
             }
             val sent = CarPlayMediaKeys.sendFromOem(
                 if (operation == SEEK_UP) CarPlayMediaButton.PREVIOUS else CarPlayMediaButton.NEXT,
                 "user-behavior",
             )
-            record(context, "CarPlay seek operation=$operation action=media sent=$sent channel=$channel")
+            record(context, "CarPlay seek operation=$operation action=media sent=$sent " +
+                "callPhase=${call?.phase ?: "NONE"} channel=$channel target=$target")
             return
         }
         if (operation == TEL_ON) {

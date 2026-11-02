@@ -10,7 +10,6 @@ internal object NissanSeekAudioRouting {
         call == CarPlayCallPhase.ACTIVE || call == CarPlayCallPhase.DIALING -> Target.CALL
         call == CarPlayCallPhase.RINGING -> Target.BLOCKED
         activeAudioChannel == "call" -> Target.CALL
-        activeAudioChannel == "assistant" -> Target.BLOCKED
         activeAudioChannel == "navigation" -> Target.NAVIGATION
         else -> Target.MEDIA
     }
