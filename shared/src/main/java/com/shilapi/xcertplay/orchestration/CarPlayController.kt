@@ -1065,6 +1065,14 @@ class CarPlayController(
                             .apply { isDaemon = true; start() }
                     }
                 },
+                onSessionTimeout = {
+                    if (!closed && generation == wirelessGeneration.get()) {
+                        fail(WirelessStartupException(WirelessStartupFailure.SESSION_AFTER_TCP_TIMEOUT,
+                            "AirPlay session did not start after TCP connection"), generation)
+                        Thread({ closeWirelessStack(generation = generation) }, "diplay-session-timeout-cleanup")
+                            .apply { isDaemon = true; start() }
+                    }
+                },
                 log = { debugLog("wireless startup generation=$generation listener=${listenerIdentity.id} $it") },
             )
             firstTcpWatchdog = watchdog
@@ -1418,10 +1426,19 @@ class CarPlayController(
                             )
                         }
                     }
-                    Iap2WirelessControlTerminal.TIMED_OUT ->
-                        if (!wirelessActiveReported.get()) {
-                            onStatus(CarPlayStatus.ControlEnded)
+                    Iap2WirelessControlTerminal.TIMED_OUT -> {
+                        debugLog("wireless RFCOMM timeout: iap2State=${result.stage} " +
+                            "wirelessCarPlayAvailable=${result.wirelessCarPlayAvailableSeen} " +
+                            "transportIdentifier=${result.transportNotificationSeen} " +
+                            "carPlayStartSessions=${result.carPlayStartSessionsSent} " +
+                            "handoffRequested=${wirelessHandoffRequested.get()} " +
+                            "tunnelReady=${wirelessTunnelReady.get()} " +
+                            "sessionActive=${activeSession != null} " +
+                            "wirelessActive=${wirelessActiveReported.get()}")
+                        if (!wirelessActiveReported.get() && activeSession == null) {
+                            throw IOException("Wireless CarPlay bootstrap timed out at ${result.stage}")
                         }
+                    }
                 }
             } else {
                 debugLog("wireless Bluetooth bootstrap unavailable; waiting for AirPlay connection over Wi-Fi")

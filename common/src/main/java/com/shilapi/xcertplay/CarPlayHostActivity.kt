@@ -2758,6 +2758,7 @@ class CarPlayHostActivity : ComponentActivity() {
         is CarPlayStatus.Failed -> when (startupFailure) {
             WirelessStartupFailure.HOTSPOT_NOT_READY -> getString(R.string.hotspot_network_not_ready)
             WirelessStartupFailure.FIRST_TCP_TIMEOUT -> getString(R.string.first_tcp_timeout)
+            WirelessStartupFailure.SESSION_AFTER_TCP_TIMEOUT -> getString(R.string.airplay_session_after_tcp_timeout)
             else -> getString(R.string.status_failed, message)
         }
     }

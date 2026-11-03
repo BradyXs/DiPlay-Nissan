@@ -102,7 +102,8 @@ internal object NissanPhoneKeyProbe {
                 .map { "${it.serviceInfo.packageName}/${it.serviceInfo.name}(priority=${it.priority})" }
                 .take(8).joinToString(",")
         }.getOrElse { "error=${it.javaClass.simpleName}" }
-        return "Nissan phone key probe: enabled=${enabled(context)} localBound=$bound status=$status " +
+        return "Nissan phone key probe: enabled=${enabled(context)} localProcessPid=${android.os.Process.myPid()} " +
+            "localBound=$bound localStatus=$status (relay may run in another process) " +
             "received=${received.get()} forwarded=${forwarded.get()} failures=${failures.get()} " +
             "${NissanOemKeyRelay.summary()} " +
             "${NissanFirmwareHmiKeys.summary()} " +

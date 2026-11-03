@@ -493,4 +493,5 @@
     <string name="settings_nissan_phone_siri_description">عند تفعيل أزرار Nissan يفتح زر الرد Siri في غياب المكالمة ويرد على مكالمة CarPlay الواردة. يلزم صوت CarPlay اللاسلكي، وللهاتف الأصلي الأولوية.</string>
     <string name="carplay_night_headlights">اتباع أضواء السيارة</string>
     <string name="carplay_night_headlights_hint">يستخدم إشارة أضواء السيارة؛ وعند عدم توفرها يتبع مظهر النظام.</string>
+    <string name="airplay_session_after_tcp_timeout">تم استقبال اتصال شبكة، لكن CarPlay لم يبدأ. جارٍ إعادة المحاولة.</string>
 </resources>

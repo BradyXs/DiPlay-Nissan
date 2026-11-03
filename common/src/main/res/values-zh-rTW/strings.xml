@@ -530,4 +530,5 @@
     <string name="settings_nissan_phone_siri_description">啟用日產實體按鍵後，無通話時按接聽鍵喚醒 Siri；CarPlay 來電時按接聽鍵接聽。需要無線 CarPlay 音訊，原廠電話優先。</string>
     <string name="carplay_night_headlights">跟隨車機大燈</string>
     <string name="carplay_night_headlights_hint">使用車機燈光訊號；訊號不可用時跟隨系統主題。</string>
+    <string name="airplay_session_after_tcp_timeout">已收到網路連線，但 CarPlay 未啟動，正在重試。</string>
 </resources>

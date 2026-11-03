@@ -11,6 +11,8 @@ internal class FirstTcpWatchdog(
     private val nowNanos: () -> Long = System::nanoTime,
     private val timeoutMillis: Long = WirelessStartupPolicy.FIRST_TCP_MILLIS,
     private val log: (String) -> Unit = {},
+    private val sessionTimeoutMillis: Long = WirelessStartupPolicy.SESSION_AFTER_TCP_MILLIS,
+    private val onSessionTimeout: () -> Unit = onTimeout,
 ) {
     @Volatile var terminated = false
         private set
@@ -23,7 +25,11 @@ internal class FirstTcpWatchdog(
         if (terminated || firstStartNanos != null) return
         firstStartNanos = sentAtNanos
         log("StartSession atNs=$sentAtNanos")
-        if (success || firstAcceptNanos != null) return
+        if (success) return
+        if (firstAcceptNanos != null) {
+            armSessionTimeout()
+            return
+        }
         val remaining = (timeoutMillis - (nowNanos() - sentAtNanos) / 1_000_000).coerceAtLeast(0)
         cancelTimer = schedule(remaining, ::expire)
     }
@@ -33,8 +39,11 @@ internal class FirstTcpWatchdog(
         if (firstAcceptNanos == null) {
             firstAcceptNanos = event.acceptedAtNanos
             log("first TCP atNs=${event.acceptedAtNanos}")
+            if (firstStartNanos != null && !success) {
+                cancel()
+                armSessionTimeout()
+            }
         }
-        cancel()
         return true
     }
 
@@ -61,6 +70,22 @@ internal class FirstTcpWatchdog(
             log("first TCP timeout atNs=${nowNanos()} startNs=$firstStartNanos")
         }
         onTimeout()
+    }
+
+    private fun armSessionTimeout() {
+        if (cancelTimer != null || terminated || success) return
+        log("TCP accepted; waiting for AirPlay session timeoutMs=$sessionTimeoutMillis")
+        cancelTimer = schedule(sessionTimeoutMillis, ::expireSession)
+    }
+
+    private fun expireSession() {
+        synchronized(this) {
+            if (terminated || success || firstAcceptNanos == null || firstStartNanos == null) return
+            terminated = true
+            cancelTimer = null
+            log("AirPlay session timeout after TCP atNs=${nowNanos()} acceptedNs=$firstAcceptNanos")
+        }
+        onSessionTimeout()
     }
 
     private fun cancel() { cancelTimer?.invoke(); cancelTimer = null }

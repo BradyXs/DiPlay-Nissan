@@ -1606,13 +1606,13 @@ private class VideoDecoder(
                             "requestToReleaseMs=${(surfaceReleaseAtNs - recoveryRequestAtNs) / 1_000_000} " +
                             "codecOutputToReleaseMs=${(surfaceReleaseAtNs - codecOutputAtNs) / 1_000_000} " +
                             "attachToReleaseMs=${if (surfaceAttachedAtNs > 0L) (surfaceReleaseAtNs - surfaceAttachedAtNs) / 1_000_000 else -1L} " +
-                            "surfacePresentConfirmed=false")
+                            "surfacePresentation=unobservable")
                     }
                     if (shown && !surfaceFirstReleaseLogged) {
                         surfaceFirstReleaseLogged = true
                         report("surface_first_release stream=$streamType " +
                             "attachToReleaseMs=${if (surfaceAttachedAtNs > 0L) (surfaceReleaseAtNs - surfaceAttachedAtNs) / 1_000_000 else -1L} " +
-                            "surfacePresentConfirmed=false")
+                            "surfacePresentation=unobservable")
                     }
                     if (shown && !renderedFrameLogged) {
                         renderedFrameLogged = true

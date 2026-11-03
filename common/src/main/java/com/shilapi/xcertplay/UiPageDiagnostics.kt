@@ -228,7 +228,7 @@ internal class UiPageDrawProbe(
         report(
             "UI_PAGE first_video_release id=$id activity=${activityName.token()} page=${page.token()} " +
                 "elapsedMs=${elapsedMs()} visibleMs=$visibleMs rootDraw=$firstDraw " +
-                "surfacePresentConfirmed=false",
+                "surfacePresentation=unobservable",
         )
         if (blackSuspectLogged) {
             report("UI_VIDEO_WAIT recovered id=$id visibleMs=$visibleMs stage=first-video-release")
