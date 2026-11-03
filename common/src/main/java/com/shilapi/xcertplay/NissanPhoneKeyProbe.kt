@@ -308,10 +308,12 @@ internal object NissanPhoneKeyProbe {
             }
             val session = current ?: return
             val channel = session.sink.nissanActiveAudioChannel()
-            val target = NissanSeekAudioRouting.target(call?.phase, channel)
+            val siriActive = session.sink.nissanSiriAudioActive()
+            val target = NissanSeekAudioRouting.target(call?.phase, channel, siriActive)
             if (target == NissanSeekAudioRouting.Target.BLOCKED) {
-                record(context, "CarPlay seek operation=$operation action=blocked reason=call_ringing " +
-                    "callPhase=${call?.phase ?: "NONE"} channel=$channel target=$target")
+                val blockReason = if (call?.phase == CarPlayCallPhase.RINGING) "call_ringing" else "siri_active"
+                record(context, "CarPlay seek operation=$operation action=blocked reason=$blockReason " +
+                    "callPhase=${call?.phase ?: "NONE"} channel=$channel siriActive=$siriActive target=$target")
                 return
             }
             if (target == NissanSeekAudioRouting.Target.CALL ||

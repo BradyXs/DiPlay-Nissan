@@ -1156,9 +1156,14 @@ class DiPlayActivity : ComponentActivity() {
         renderSections(content, SettingsInformationArchitecture.sectionsByCategory.getValue(SettingsCategory.DISPLAY))
     }
 
-    private fun nightModeLabels() = CarPlayNightMode.entries.map { mode ->
+    private fun availableNightModes() = CarPlayNightMode.entries.filter {
+        it != CarPlayNightMode.HEADLIGHTS || nissanAndroid44Profile
+    }
+
+    private fun nightModeLabels() = availableNightModes().map { mode ->
         getString(when (mode) {
             CarPlayNightMode.SYSTEM -> R.string.carplay_night_system
+            CarPlayNightMode.HEADLIGHTS -> R.string.carplay_night_headlights
             CarPlayNightMode.AMBIENT -> R.string.carplay_night_ambient
             CarPlayNightMode.DAY -> R.string.carplay_night_day
             CarPlayNightMode.NIGHT -> R.string.carplay_night_night
@@ -1167,7 +1172,7 @@ class DiPlayActivity : ComponentActivity() {
     }
 
     private fun appearanceControl(parent: LinearLayout) {
-        val modes = CarPlayNightMode.entries
+        val modes = availableNightModes()
         choice(parent, getString(R.string.carplay_night_mode), nightModeLabels(),
             modes.indexOf(AirPlayPersistence.loadCarPlayNightMode(this)), reconnects = false) { index ->
             AirPlayPersistence.saveCarPlayNightMode(this, modes[index])
@@ -1385,10 +1390,6 @@ class DiPlayActivity : ComponentActivity() {
         }
         filteredSection(content, SettingsSection.DIAGNOSTICS,
             getString(R.string.diagnostics), R.drawable.ic_dp_diagnostics) { card ->
-            toggle(card, getString(R.string.debug_logs), getString(R.string.show_on_screen_debug_logs),
-                AirPlayPersistence.loadDebugLogsEnabled(this)) {
-                AirPlayPersistence.saveDebugLogsEnabled(this, it)
-            }
             toggle(card, getString(R.string.settings_detailed_diagnostics_title),
                 getString(R.string.settings_detailed_diagnostics_description),
                 AirPlayPersistence.loadDetailedDiagnosticsEnabled(this)) {
@@ -1450,13 +1451,16 @@ class DiPlayActivity : ComponentActivity() {
         }
         filteredSection(content, SettingsSection.DISPLAY_AND_PERFORMANCE,
             getString(R.string.display_and_performance), R.drawable.ic_dp_display) { card ->
-            val nightModes = CarPlayNightMode.entries
+            val nightModes = availableNightModes()
             val nightMode = AirPlayPersistence.loadCarPlayNightMode(this)
             val ambientControls = column().apply {
                 visibility = if (nightMode == CarPlayNightMode.AMBIENT) View.VISIBLE else View.GONE
             }
             val scheduleControls = column().apply {
                 visibility = if (nightMode == CarPlayNightMode.SCHEDULE) View.VISIBLE else View.GONE
+            }
+            val headlightsHint = label(getString(R.string.carplay_night_headlights_hint), 14, MUTED).apply {
+                visibility = if (nightMode == CarPlayNightMode.HEADLIGHTS) View.VISIBLE else View.GONE
             }
             choice(
                 card,
@@ -1468,7 +1472,9 @@ class DiPlayActivity : ComponentActivity() {
                 AirPlayPersistence.saveCarPlayNightMode(this, nightModes[index])
                 ambientControls.visibility = if (nightModes[index] == CarPlayNightMode.AMBIENT) View.VISIBLE else View.GONE
                 scheduleControls.visibility = if (nightModes[index] == CarPlayNightMode.SCHEDULE) View.VISIBLE else View.GONE
+                headlightsHint.visibility = if (nightModes[index] == CarPlayNightMode.HEADLIGHTS) View.VISIBLE else View.GONE
             }
+            card.addView(headlightsHint)
             card.addView(label(getString(R.string.carplay_night_hint), 14, MUTED))
             card.addView(label(getString(R.string.carplay_night_time_note), 14, MUTED).apply {
                 setPadding(0, 0, 0, dp(18))

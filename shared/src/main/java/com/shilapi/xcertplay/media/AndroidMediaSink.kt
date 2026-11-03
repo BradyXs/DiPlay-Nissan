@@ -730,6 +730,9 @@ class AndroidMediaSink(
         }
     }
 
+    /** Do not confuse overlapping navigation and Siri with ordinary media playback. */
+    fun nissanSiriAudioActive(): Boolean = AudioChannel.ASSISTANT in activeCarPlayAudioChannels.values
+
     private fun updateMediaAudio(id: AudioStreamId, active: Boolean) {
         val (before, after) = synchronized(mediaAudioTypes) {
             val before = mediaAudioTypes.isNotEmpty()

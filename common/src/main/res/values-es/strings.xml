@@ -479,7 +479,7 @@
     <string name="settings_car_bluetooth_mac_dialog_message">Introduce la dirección MAC de Bluetooth del coche (ej. AA:BB:CC:DD:EE:FF). Búscala en iPhone Ajustes → Bluetooth → (i) o en los ajustes del coche.</string>
     <string name="settings_car_bluetooth_mac_clear">Automático / Borrar</string>
     <string name="settings_car_bluetooth_mac_invalid">Introduce una dirección MAC hexadecimal válida de 12 dígitos.</string>
-    <string name="settings_detailed_diagnostics_title">Registros detallados de reproducción</string>
+    <string name="settings_detailed_diagnostics_title">Registros de diagnóstico detallados</string>
     <string name="settings_detailed_diagnostics_description">Registra tiempos frecuentes de vídeo y conexión inalámbrica. Déjelo desactivado normalmente; los fallos y las interrupciones se seguirán registrando.</string>
 
 
@@ -491,4 +491,6 @@
     <string name="settings_nissan_physical_keys_description">Activa el envío de teclas Nissan para pistas, llamadas y volumen de CarPlay. El servicio original recibe primero los eventos. Puede ser necesario reiniciar la unidad después de cambiarlo.</string>
     <string name="settings_nissan_physical_keys_failed">No se pudo cambiar el envío de teclas Nissan.</string>
     <string name="settings_nissan_phone_siri_description">Con las teclas Nissan activadas, responder abre Siri si no hay llamada y responde una llamada CarPlay entrante. Requiere audio CarPlay inalámbrico; el teléfono original tiene prioridad.</string>
+    <string name="carplay_night_headlights">Seguir las luces del vehículo</string>
+    <string name="carplay_night_headlights_hint">Usa la señal de luces del vehículo; si no está disponible, sigue el tema del sistema.</string>
 </resources>

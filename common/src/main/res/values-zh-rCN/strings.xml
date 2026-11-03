@@ -516,7 +516,7 @@
     <string name="report_usb_location">U盘：%1$s</string>
     <string name="report_usb_copy_unavailable">U盘副本：未找到可写U盘</string>
     <string name="report_usb_copy_paths">另外保存到：\n%1$s</string>
-    <string name="settings_detailed_diagnostics_title">详细播放日志</string>
+    <string name="settings_detailed_diagnostics_title">详细诊断日志</string>
     <string name="settings_detailed_diagnostics_description">记录高频视频及无线链路耗时。日常使用建议关闭；连接故障和卡顿仍会记录。</string>
 
 
@@ -528,4 +528,6 @@
     <string name="settings_nissan_physical_keys_description">启用日产实体按键转发，支持 CarPlay 切歌、电话和音量控制。按键事件先交给原厂服务；开启或关闭后，原厂服务可能需要重启车机才能重新选择接收方。</string>
     <string name="settings_nissan_physical_keys_failed">无法更改日产实体按键转发。</string>
     <string name="settings_nissan_phone_siri_description">启用日产实体按键后，无通话时按接听键唤醒 Siri；CarPlay 来电时按接听键接听。需要无线 CarPlay 音频，原厂电话优先。</string>
+    <string name="carplay_night_headlights">跟随车机大灯</string>
+    <string name="carplay_night_headlights_hint">使用车机灯光信号；信号不可用时跟随系统主题。</string>
 </resources>

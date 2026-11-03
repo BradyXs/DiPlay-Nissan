@@ -551,7 +551,7 @@
     <string name="report_usb_location">USB: %1$s</string>
     <string name="report_usb_copy_unavailable">USB copy: no writable drive found</string>
     <string name="report_usb_copy_paths">Additional copies:\n%1$s</string>
-    <string name="settings_detailed_diagnostics_title">Detailed playback logs</string>
+    <string name="settings_detailed_diagnostics_title">Detailed diagnostic logs</string>
     <string name="settings_detailed_diagnostics_description">Record frequent video and wireless timing details. Keep off for normal driving; connection failures and stalls are still recorded.</string>
 
 
@@ -563,4 +563,6 @@
     <string name="settings_nissan_physical_keys_description">Enables Nissan key forwarding for CarPlay track, phone and volume controls. Factory service receives events first. After enabling or disabling, the factory service may require a head-unit restart.</string>
     <string name="settings_nissan_physical_keys_failed">Could not change Nissan physical key forwarding.</string>
     <string name="settings_nissan_phone_siri_description">With Nissan physical keys enabled, the answer key opens Siri when there is no call. An incoming CarPlay call uses the same key to answer. Requires wireless CarPlay audio; factory phone calls take priority.</string>
+    <string name="carplay_night_headlights">Follow car headlights</string>
+    <string name="carplay_night_headlights_hint">Uses the head unit’s light signal; follows the system theme when it is unavailable.</string>
 </resources>

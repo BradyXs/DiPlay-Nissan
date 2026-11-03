@@ -53,7 +53,6 @@ internal object DiPlayBootstrap {
         } finally {
             staging.deleteRecursively()
         }
-        AirPlayPersistence.saveDebugLogsEnabled(context, false)
         ready = true
     }
 

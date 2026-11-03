@@ -490,7 +490,7 @@
     <string name="settings_car_bluetooth_mac_dialog_message">Введіть власний MAC-адрес Bluetooth автомобіля (наприклад AA:BB:CC:DD:EE:FF). Його можна знайти в iPhone Параметри → Bluetooth → (i) або в налаштуваннях автомобіля.</string>
     <string name="settings_car_bluetooth_mac_clear">Авто / Очистити</string>
     <string name="settings_car_bluetooth_mac_invalid">Будь ласка, введіть дійсний 12-значний шістнадцятковий MAC-адрес.</string>
-    <string name="settings_detailed_diagnostics_title">Докладні журнали відтворення</string>
+    <string name="settings_detailed_diagnostics_title">Докладні діагностичні журнали</string>
     <string name="settings_detailed_diagnostics_description">Записує часті дані про відео та бездротовий зв’язок. Зазвичай тримайте вимкненим; збої та зависання все одно записуються.</string>
 
 
@@ -502,4 +502,6 @@
     <string name="settings_nissan_physical_keys_description">Вмикає передавання кнопок Nissan для треків, дзвінків і гучності CarPlay. Штатна служба отримує події першою. Після зміни може знадобитися перезавантаження пристрою.</string>
     <string name="settings_nissan_physical_keys_failed">Не вдалося змінити передавання кнопок Nissan.</string>
     <string name="settings_nissan_phone_siri_description">Коли кнопки Nissan увімкнені, кнопка відповіді відкриває Siri поза дзвінком і приймає вхідний виклик CarPlay. Потрібен бездротовий звук CarPlay; штатний телефон має пріоритет.</string>
+    <string name="carplay_night_headlights">За фарами автомобіля</string>
+    <string name="carplay_night_headlights_hint">Використовується сигнал освітлення автомобіля; за його відсутності застосовується тема системи.</string>
 </resources>

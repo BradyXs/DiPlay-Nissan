@@ -516,7 +516,7 @@
     <string name="report_usb_location">USB隨身碟：%1$s</string>
     <string name="report_usb_copy_unavailable">USB副本：找不到可寫入的USB隨身碟</string>
     <string name="report_usb_copy_paths">其他儲存位置：\n%1$s</string>
-    <string name="settings_detailed_diagnostics_title">詳細播放記錄</string>
+    <string name="settings_detailed_diagnostics_title">詳細診斷記錄</string>
     <string name="settings_detailed_diagnostics_description">記錄高頻影片及無線連線耗時。日常使用建議關閉；連線故障與卡頓仍會記錄。</string>
 
 
@@ -528,4 +528,6 @@
     <string name="settings_nissan_physical_keys_description">啟用日產實體按鍵轉發，支援 CarPlay 切歌、電話和音量控制。按鍵事件先交給原廠服務；開啟或關閉後，原廠服務可能需要重新啟動車機才能重新選擇接收方。</string>
     <string name="settings_nissan_physical_keys_failed">無法變更日產實體按鍵轉發。</string>
     <string name="settings_nissan_phone_siri_description">啟用日產實體按鍵後，無通話時按接聽鍵喚醒 Siri；CarPlay 來電時按接聽鍵接聽。需要無線 CarPlay 音訊，原廠電話優先。</string>
+    <string name="carplay_night_headlights">跟隨車機大燈</string>
+    <string name="carplay_night_headlights_hint">使用車機燈光訊號；訊號不可用時跟隨系統主題。</string>
 </resources>

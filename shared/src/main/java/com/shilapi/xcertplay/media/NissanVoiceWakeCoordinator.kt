@@ -7,6 +7,7 @@ import android.content.ServiceConnection
 import android.os.IBinder
 import android.os.Parcel
 import android.os.RemoteException
+import android.os.SystemClock
 import java.io.Closeable
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
@@ -40,6 +41,10 @@ internal class NissanVoiceWakeCoordinator(
             }
         }
         val intent = Intent(VOICE_ACTION).setComponent(ComponentName(VOICE_PACKAGE, VOICE_SERVICE))
+        // A local or already-bound service may invoke its callback before bindService returns.
+        // Publish the connection first so that callback cannot discard the binder.
+        connection = serviceConnection
+        val startedAt = SystemClock.elapsedRealtime()
         val bound = try {
             context.bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE)
         } catch (error: Exception) {
@@ -47,18 +52,23 @@ internal class NissanVoiceWakeCoordinator(
             false
         }
         if (!bound) {
+            connection = null
+            binder = null
             report("Microphone: Nissan voice service unavailable; capture disabled")
             return false
         }
-        connection = serviceConnection
+        var interrupted = false
         val connected = try {
             ready.await(BIND_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS) && binder != null
         } catch (_: InterruptedException) {
+            interrupted = true
             Thread.currentThread().interrupt()
             false
         }
         if (!connected) {
-            report("Microphone: Nissan voice bind timed out; capture disabled")
+            val reason = if (interrupted) "interrupted" else if (ready.count == 0L) "callback_without_binder" else "timeout"
+            report("Microphone: Nissan voice bind failed reason=$reason elapsedMs=${SystemClock.elapsedRealtime() - startedAt} " +
+                "thread=${Thread.currentThread().name}; capture disabled")
             releaseBinding()
             return false
         }
@@ -83,6 +93,7 @@ internal class NissanVoiceWakeCoordinator(
             Thread.sleep(WAKE_RELEASE_MILLIS)
             true
         } catch (error: Exception) {
+            if (error is InterruptedException) Thread.currentThread().interrupt()
             report("Microphone: Nissan voice pause failed error=${error.javaClass.simpleName}; capture disabled")
             restoreAfterMicrophone()
             false

@@ -6,10 +6,11 @@ import com.shilapi.xcertplay.orchestration.CarPlayCallPhase
 internal object NissanSeekAudioRouting {
     enum class Target { MEDIA, NAVIGATION, CALL, BLOCKED }
 
-    fun target(call: CarPlayCallPhase?, activeAudioChannel: String): Target = when {
+    fun target(call: CarPlayCallPhase?, activeAudioChannel: String, siriActive: Boolean = false): Target = when {
         call == CarPlayCallPhase.ACTIVE || call == CarPlayCallPhase.DIALING -> Target.CALL
         call == CarPlayCallPhase.RINGING -> Target.BLOCKED
         activeAudioChannel == "call" -> Target.CALL
+        siriActive || activeAudioChannel == "assistant" -> Target.BLOCKED
         activeAudioChannel == "navigation" -> Target.NAVIGATION
         else -> Target.MEDIA
     }

@@ -5,6 +5,7 @@ import java.util.Calendar
 /** Stable preference values; never persist enum ordinals. */
 enum class CarPlayNightMode(val key: String) {
     SYSTEM("system"),
+    HEADLIGHTS("headlights"),
     AMBIENT("ambient"),
     DAY("day"),
     NIGHT("night"),
@@ -50,7 +51,12 @@ internal class CarPlayNightModeController(
     initialNight: Boolean,
     private val onNightChanged: (Boolean) -> Unit,
     private val timeSource: NightTimeSource = SystemNightTimeSource,
+    private val headlights: HeadlightSource? = null,
 ) {
+    interface HeadlightSource {
+        fun start(onNight: (Boolean?) -> Unit)
+        fun stop()
+    }
     interface LightSource {
         val available: Boolean
         fun start(onLux: (Float) -> Unit): Boolean
@@ -71,6 +77,8 @@ internal class CarPlayNightModeController(
     private var schedule = CarPlayNightSchedule()
     private var resumed = false
     private var listening = false
+    private var headlightsListening = false
+    private var headlightKnown = false
     private var pending: Boolean? = null
     private val transition = Runnable {
         val target = pending
@@ -117,12 +125,25 @@ internal class CarPlayNightModeController(
         systemNight = night
         val ambientFallback = mode == CarPlayNightMode.AMBIENT &&
             (!light.available || (resumed && !listening))
-        if (mode == CarPlayNightMode.SYSTEM || ambientFallback) applyNight(night)
+        if (mode == CarPlayNightMode.SYSTEM || ambientFallback ||
+            (mode == CarPlayNightMode.HEADLIGHTS && !headlightKnown)) applyNight(night)
     }
 
     private fun applyMode() {
         when (mode) {
             CarPlayNightMode.SYSTEM -> applyNight(systemNight)
+            CarPlayNightMode.HEADLIGHTS -> {
+                if (!headlightKnown) applyNight(systemNight)
+                if (resumed && !headlightsListening && headlights != null) {
+                    headlightsListening = true
+                    headlights.start { value ->
+                        if (resumed && headlightsListening && mode == CarPlayNightMode.HEADLIGHTS) {
+                            headlightKnown = value != null
+                            applyNight(value ?: systemNight)
+                        }
+                    }
+                }
+            }
             CarPlayNightMode.DAY -> applyNight(false)
             CarPlayNightMode.NIGHT -> applyNight(true)
             CarPlayNightMode.SCHEDULE -> applySchedule()
@@ -160,6 +181,9 @@ internal class CarPlayNightModeController(
 
     private fun stopListening() {
         if (listening) light.stop()
+        if (headlightsListening) headlights?.stop()
+        headlightsListening = false
+        headlightKnown = false
         listening = false
         cancelPending()
         scheduler.remove(scheduleTick)

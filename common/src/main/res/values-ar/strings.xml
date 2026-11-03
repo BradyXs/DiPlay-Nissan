@@ -479,7 +479,7 @@
     <string name="settings_car_bluetooth_mac_dialog_message">أدخل عنوان MAC لبلوتوث السيارة (مثل AA:BB:CC:DD:EE:FF). ستجده في iPhone الإعدادات ← بلوتوث ← (i) أو إعدادات السيارة.</string>
     <string name="settings_car_bluetooth_mac_clear">تلقائي / مسح</string>
     <string name="settings_car_bluetooth_mac_invalid">يرجى إدخال عنوان MAC سداسي عشري صالح من 12 خانة.</string>
-    <string name="settings_detailed_diagnostics_title">سجلات تشغيل مفصلة</string>
+    <string name="settings_detailed_diagnostics_title">سجلات تشخيص مفصلة</string>
     <string name="settings_detailed_diagnostics_description">يسجل تفاصيل متكررة عن الفيديو والاتصال اللاسلكي. اتركه مغلقًا في الاستخدام العادي؛ تظل الأعطال والتوقفات مسجلة.</string>
 
 
@@ -491,4 +491,6 @@
     <string name="settings_nissan_physical_keys_description">يتيح تمرير أزرار Nissan للتحكم بمقاطع CarPlay والمكالمات والصوت. تستقبل الخدمة الأصلية الأحداث أولاً. قد يلزم إعادة تشغيل الوحدة بعد التغيير.</string>
     <string name="settings_nissan_physical_keys_failed">تعذر تغيير تمرير أزرار Nissan.</string>
     <string name="settings_nissan_phone_siri_description">عند تفعيل أزرار Nissan يفتح زر الرد Siri في غياب المكالمة ويرد على مكالمة CarPlay الواردة. يلزم صوت CarPlay اللاسلكي، وللهاتف الأصلي الأولوية.</string>
+    <string name="carplay_night_headlights">اتباع أضواء السيارة</string>
+    <string name="carplay_night_headlights_hint">يستخدم إشارة أضواء السيارة؛ وعند عدم توفرها يتبع مظهر النظام.</string>
 </resources>

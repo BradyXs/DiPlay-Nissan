@@ -283,7 +283,6 @@ class CarPlayHostActivity : ComponentActivity() {
     private var advancedAudioChannelMappingSupported = false
     private var advancedAudioChannelMapping = false
     private var navigationStreamType = android.media.AudioManager.STREAM_MUSIC
-    private var debugLogsEnabled = false
     private var manufacturer = AirPlayPersistence.DEFAULT_MANUFACTURER
     private var model = AirPlayPersistence.DEFAULT_MODEL
     private var oemLabel = AirPlayPersistence.DEFAULT_OEM_LABEL
@@ -338,6 +337,8 @@ class CarPlayHostActivity : ComponentActivity() {
             light = AndroidAmbientLight(this),
             scheduler = MainThreadNightModeScheduler(),
             initialNight = darkMode,
+            headlights = if (com.shilapi.xcertplay.host.BuildConfig.NISSAN_ANDROID_44_PROFILE)
+                NissanHeadlightSource(applicationContext, ::appendLog) else null,
             onNightChanged = { night ->
                 darkMode = night
                 paintWaitingScreen()
@@ -574,7 +575,6 @@ class CarPlayHostActivity : ComponentActivity() {
             advancedAudioChannelMappingSupported &&
                 AirPlayPersistence.loadAdvancedAudioChannelMapping(this)
         navigationStreamType = AirPlayPersistence.loadNavigationStreamType(this)
-        debugLogsEnabled = AirPlayPersistence.loadDebugLogsEnabled(this)
         manufacturer = AirPlayPersistence.loadManufacturer(this)
         model = AirPlayPersistence.loadModel(this)
         oemLabel = AirPlayPersistence.loadOemLabel(this)
@@ -755,7 +755,6 @@ class CarPlayHostActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         detailedDiagnosticsEnabled = AirPlayPersistence.loadDetailedDiagnosticsEnabled(this)
-        debugLogsEnabled = AirPlayPersistence.loadDebugLogsEnabled(this)
         gestureFingerCount = AirPlayPersistence.loadSettingsGestureFingers(this)
         settingsGestureHint?.text = getString(R.string.open_diplay_settings_hint, gestureFingerCount)
         fps = AirPlayPersistence.loadFps(this)
