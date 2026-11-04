@@ -16,6 +16,8 @@ import com.shilapi.xcertplay.airplay.MicrophonePacketizer
 import java.io.Closeable
 import java.net.DatagramPacket
 import java.net.DatagramSocket
+import java.net.Inet4Address
+import java.net.Inet6Address
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.util.concurrent.atomic.AtomicBoolean
@@ -121,7 +123,21 @@ internal class MicrophoneUplink(
 
         trace("socket-begin", startedNs)
         val nextSocket = try {
-            AirPlaySocketBinder.datagram(config.host, "CarPlay microphone uplink")
+            val local = config.localAddress
+            val bindToSessionAddress = config.host is Inet6Address && config.host.isLinkLocalAddress &&
+                local is Inet6Address && local.isLinkLocalAddress
+            val exactSocket = if (bindToSessionAddress) runCatching {
+                AirPlaySocketBinder.datagramAt(checkNotNull(local), "CarPlay microphone uplink")
+            }.onFailure { bindError ->
+                onDiagnostic("Microphone: session-local socket bind failed; using scoped wildcard " +
+                    "error=${bindError.javaClass.simpleName}")
+            }.getOrNull() else null
+            val created = exactSocket ?: AirPlaySocketBinder.datagram(config.host, "CarPlay microphone uplink")
+            val bindRoute = if (exactSocket != null) "session-local-address" else "family-wildcard"
+            onDiagnostic("Microphone: socket bound route=$bindRoute " +
+                "local=${AirPlaySocketBinder.scopeDescription(local)} " +
+                "peer=${AirPlaySocketBinder.scopeDescription(config.host)}")
+            created
         } catch (error: Exception) {
             Log.e(TAG, "microphone socket creation failed", error)
             stats.failure(MicrophoneFailureStage.SOCKET_CREATION, error)
@@ -151,6 +167,13 @@ internal class MicrophoneUplink(
             nextRecorder.startRecording()
             trace("recording-end", startedNs,
                 "state=${nextRecorder.state} recordingState=${nextRecorder.recordingState}")
+            // On some API 19 head units startRecording() can block while the call is ending.
+            // onMicrophoneStopped() may close the recorder and socket during that call; do not
+            // launch a capture worker against the already closed stream when it finally returns.
+            if (!running.get() || recorder !== nextRecorder || socket !== nextSocket || nextSocket.isClosed) {
+                trace("recording-cancelled", startedNs, "reason=stream-stopped-during-start")
+                return false
+            }
             stats.started(routeType(nextRecorder))
             if (nextEncoder != null) {
                 onDiagnostic("Microphone: Opus encoder backend=${nextEncoder.backend} type=${config.audioType}")
@@ -405,6 +428,21 @@ internal class MicrophoneUplink(
             stats.sent()
         } catch (error: Exception) {
             stats.sendFailed()
+            val endpoint = when (val address = config.host) {
+                is Inet6Address -> "family=IPv6 linkLocal=${address.isLinkLocalAddress} scopeId=${address.scopeId}"
+                is Inet4Address -> "family=IPv4"
+                else -> "family=other"
+            }
+            val detail = error.message
+                ?.replace(Regex("(?i)(?<![0-9a-f])(?:[0-9a-f]{0,4}:){2,}[0-9a-f:.%]+"), "[IPv6]")
+                ?.replace(Regex("(?<!\\d)(?:\\d{1,3}\\.){3}\\d{1,3}(?!\\d)"), "[IPv4]")
+                ?.replace(Regex("\\s+"), " ")
+                ?.take(120) ?: "none"
+            runCatching {
+                onDiagnostic("Microphone: uplink send failed type=${config.audioType} $endpoint " +
+                    "port=${config.port} local=${AirPlaySocketBinder.scopeDescription(config.localAddress)} " +
+                    "error=${error.javaClass.simpleName} detail=$detail")
+            }
             if (running.get()) throw error
         }
     }

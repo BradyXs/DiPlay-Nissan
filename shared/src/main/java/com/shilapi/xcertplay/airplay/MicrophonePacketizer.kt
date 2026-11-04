@@ -21,6 +21,8 @@ data class MicrophoneConfig(
      * keep the standard 48 kHz Opus RTP clock until equivalent packet evidence is available.
      */
     val opusClockRate: Int = OPUS_CAPTURE_RATE,
+    /** Local address of the AirPlay TCP session; used to keep IPv6 uplink on the same TUN link. */
+    val localAddress: InetAddress? = null,
 ) {
     val samplesPerPacket: Int
         get() = if (codec == AudioCodecKind.OPUS) {

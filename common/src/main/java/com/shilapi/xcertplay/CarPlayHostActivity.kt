@@ -1718,6 +1718,21 @@ class CarPlayHostActivity : ComponentActivity() {
                 }
             }
 
+            override fun onUsbDeviceDisconnected(reason: String) {
+                runOnUiThread {
+                    if (controllerGeneration != restartGeneration || shuttingDown.get()) return@runOnUiThread
+                    startupRetryStopped = true
+                    activeAirPlaySession = null
+                    CarPlayBackgroundSession.active = false
+                    activeScreenStreamTypes.clear()
+                    visibleVideoFrameReleased = false
+                    appendLog("Wired CarPlay disconnected: $reason")
+                    shutdown(terminateProcess = false, reason = "Wired iPhone disconnected") {
+                        finish()
+                    }
+                }
+            }
+
             override fun onTransportError(message: String) {
                 runOnUiThread {
                     if (controllerGeneration != restartGeneration || startupRetryStopped) return@runOnUiThread

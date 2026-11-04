@@ -490,7 +490,7 @@
     <string name="settings_nissan_physical_keys">Физические кнопки Nissan</string>
     <string name="settings_nissan_physical_keys_description">Включает передачу кнопок Nissan для треков, звонков и громкости CarPlay. Штатная служба получает события первой. После изменения может потребоваться перезагрузка устройства.</string>
     <string name="settings_nissan_physical_keys_failed">Не удалось изменить передачу кнопок Nissan.</string>
-    <string name="settings_nissan_phone_siri_description">При включённых кнопках Nissan кнопка ответа открывает Siri вне звонка и принимает входящий вызов CarPlay. Нужен беспроводной звук CarPlay; штатный телефон имеет приоритет.</string>
+    <string name="settings_nissan_phone_siri_description">При включённых кнопках Nissan кнопка ответа открывает Siri вне звонка и принимает входящий вызов CarPlay. Требуется активный аудиосеанс CarPlay; штатный телефон имеет приоритет.</string>
     <string name="carplay_night_headlights">По фарам автомобиля</string>
     <string name="carplay_night_headlights_hint">Используется сигнал освещения автомобиля; при его отсутствии применяется тема системы.</string>
     <string name="airplay_session_after_tcp_timeout">Сетевое соединение получено, но CarPlay не запустился. Повторная попытка.</string>

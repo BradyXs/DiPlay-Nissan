@@ -279,6 +279,7 @@ class CarPlayController(
 
     private var permissionCloseable: Closeable? = null
     private var attachCloseable: Closeable? = null
+    private var detachCloseable: Closeable? = null
     private var ch341PermissionCloseable: Closeable? = null
     private var vpnLatch = CountDownLatch(1)
     private val teardownComplete = CountDownLatch(1)
@@ -321,6 +322,10 @@ class CarPlayController(
                 }
             }
             debugLog("AirPlay session ended peer=${session.host}")
+            if (config.transport == CarPlayTransport.WIRED &&
+                runCatching { iphoneHost.discover().isEmpty() }.getOrDefault(false)) {
+                uiListener?.onUsbDeviceDisconnected("iPhone absent when wired AirPlay session ended")
+            }
             uiListener?.onSessionEnded(session)
         }
 
@@ -454,6 +459,7 @@ class CarPlayController(
         if (config.transport == CarPlayTransport.WIRED) {
             permissionCloseable = iphoneHost.registerPermissionReceiver(::onIphonePermission)
             attachCloseable = iphoneHost.registerAttachReceiver(::onIphoneAttached)
+            detachCloseable = iphoneHost.registerDetachReceiver(::onIphoneDetached)
         }
         startMfi()
     }
@@ -1982,6 +1988,15 @@ class CarPlayController(
         }
     }
 
+    private fun onIphoneDetached(device: UsbDevice) {
+        if (closed || config.transport != CarPlayTransport.WIRED ||
+            (phase != Phase.IPHONE && phase != Phase.DATAPATHS && phase != Phase.CONTROL)) return
+        val reason = "iPhone USB detached vid=0x${device.vendorId.toString(16)} " +
+            "pid=0x${device.productId.toString(16)}"
+        connectionDiagnostic("$reason; ending wired CarPlay session")
+        uiListener?.onUsbDeviceDisconnected(reason)
+    }
+
     private fun scheduleAvailabilityPoll(phase: Phase, check: () -> Unit) {
         val generation = availabilityPollGeneration.get()
         mainHandler.postDelayed(
@@ -2731,7 +2746,7 @@ class CarPlayController(
     }
 
     private fun closeReceivers() {
-        listOfNotNull(permissionCloseable, attachCloseable, ch341PermissionCloseable).forEach {
+        listOfNotNull(permissionCloseable, attachCloseable, detachCloseable, ch341PermissionCloseable).forEach {
             try {
                 it.close()
             } catch (_: Exception) {
@@ -2740,6 +2755,7 @@ class CarPlayController(
         }
         permissionCloseable = null
         attachCloseable = null
+        detachCloseable = null
         ch341PermissionCloseable = null
     }
 

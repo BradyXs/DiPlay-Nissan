@@ -28,6 +28,8 @@ interface AirPlaySessionListener {
     fun onTcpAccepted(event: AirPlayTcpAccepted) {}
     fun onSessionActive(session: AirPlaySession) {}
     fun onSessionEnded(session: AirPlaySession) {}
+    /** The wired iPhone was physically removed; the UI should end this host session. */
+    fun onUsbDeviceDisconnected(reason: String) {}
     fun onVideoFrameRendered(session: AirPlaySession) {}
     fun onTransportError(message: String) {}
     fun onDeviceInfo(session: AirPlaySession, info: AirPlayDeviceInfo) {}

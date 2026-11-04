@@ -142,6 +142,13 @@ class IphoneUsbHost(
         return device.takeIf { matcher.matches(it.vendorId, it.productId) }
     }
 
+    /** Returns the detached iPhone when Android removes a matching USB device. */
+    fun parseDetachedDevice(intent: Intent): UsbDevice? {
+        if (intent.action != UsbManager.ACTION_USB_DEVICE_DETACHED) return null
+        val device = intent.usbDevice() ?: return null
+        return device.takeIf { matcher.matches(it.vendorId, it.productId) }
+    }
+
     /** Register once for this host instance and close the returned handle to unregister it. */
     fun registerPermissionReceiver(onResult: (PermissionResult) -> Unit): Closeable =
         registerReceiver(IntentFilter(permissionAction)) { parsePermissionResult(it)?.let(onResult) }
@@ -150,6 +157,12 @@ class IphoneUsbHost(
     fun registerAttachReceiver(onAttached: (UsbDevice) -> Unit): Closeable =
         registerReceiver(IntentFilter(UsbManager.ACTION_USB_DEVICE_ATTACHED)) {
             parseAttachedDevice(it)?.let(onAttached)
+        }
+
+    /** Register once for iPhone removal so a lost wired session can exit instead of freezing. */
+    fun registerDetachReceiver(onDetached: (UsbDevice) -> Unit): Closeable =
+        registerReceiver(IntentFilter(UsbManager.ACTION_USB_DEVICE_DETACHED)) {
+            parseDetachedDevice(it)?.let(onDetached)
         }
 
     /**

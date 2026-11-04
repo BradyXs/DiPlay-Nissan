@@ -3,6 +3,11 @@
     xmlns:tools="http://schemas.android.com/tools">
     <application>
         <service
+            android:name="com.shilapi.xcertplay.DiPlaySessionService"
+            android:enabled="true"
+            android:exported="true"
+            tools:replace="android:exported" />
+        <service
             android:name="com.shilapi.xcertplay.NissanPhoneKeyProbeService"
             android:enabled="false"
             android:exported="true"

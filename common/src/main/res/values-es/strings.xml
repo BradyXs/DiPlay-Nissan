@@ -490,7 +490,7 @@
     <string name="settings_nissan_physical_keys">Botones físicos Nissan</string>
     <string name="settings_nissan_physical_keys_description">Activa el envío de teclas Nissan para pistas, llamadas y volumen de CarPlay. El servicio original recibe primero los eventos. Puede ser necesario reiniciar la unidad después de cambiarlo.</string>
     <string name="settings_nissan_physical_keys_failed">No se pudo cambiar el envío de teclas Nissan.</string>
-    <string name="settings_nissan_phone_siri_description">Con las teclas Nissan activadas, responder abre Siri si no hay llamada y responde una llamada CarPlay entrante. Requiere audio CarPlay inalámbrico; el teléfono original tiene prioridad.</string>
+    <string name="settings_nissan_phone_siri_description">Con las teclas Nissan activadas, responder abre Siri si no hay llamada y responde una llamada CarPlay entrante. Requiere una sesión de audio CarPlay activa; el teléfono original tiene prioridad.</string>
     <string name="carplay_night_headlights">Seguir las luces del vehículo</string>
     <string name="carplay_night_headlights_hint">Usa la señal de luces del vehículo; si no está disponible, sigue el tema del sistema.</string>
     <string name="airplay_session_after_tcp_timeout">Se recibió una conexión de red, pero CarPlay no se inició. Reintentando.</string>

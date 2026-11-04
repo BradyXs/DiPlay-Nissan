@@ -41,6 +41,29 @@ internal object AirPlaySocketBinder {
         return runCatching { Inet6Address.getByAddress(null, v6.address, scope) }.getOrDefault(address)
     }
 
+    /**
+     * Scope a peer's link-local address to the interface carrying this AirPlay session.
+     * Accepted TCP peer addresses can contain a nonzero scope copied from the kernel; use the
+     * session's local address as the authority so a stale or unrelated peer scope is not reused.
+     */
+    internal fun scopedLinkLocal(address: InetAddress, routeReference: InetAddress?): InetAddress {
+        val peer = address as? Inet6Address ?: return address
+        if (!peer.isLinkLocalAddress) return address
+        val local = routeReference as? Inet6Address
+        val scope = local?.takeIf { it.isLinkLocalAddress }?.let(::linkScopeOf) ?: 0
+        if (scope == 0) return scopedLinkLocal(address)
+        return runCatching { Inet6Address.getByAddress(null, peer.address, scope) }.getOrDefault(address)
+    }
+
+    /** A redacted scope/interface summary for diagnosing link-local UDP routing. */
+    internal fun scopeDescription(address: InetAddress?): String {
+        val v6 = address as? Inet6Address ?: return if (address is Inet4Address) "family=IPv4" else "family=unknown"
+        val iface = v6.scopeId.takeIf { it > 0 }
+            ?.let { runCatching { NetworkInterface.getByIndex(it)?.name }.getOrNull() }
+            ?: "unknown"
+        return "family=IPv6 linkLocal=${v6.isLinkLocalAddress} scopeId=${v6.scopeId} interface=$iface"
+    }
+
     /** Scoped "::" wildcard for the link that owns [reference], or null when unresolvable. */
     private fun scopedWildcard(reference: Inet6Address): InetAddress? {
         val scope = linkScopeOf(reference)
@@ -82,6 +105,17 @@ internal object AirPlaySocketBinder {
             socket.reuseAddress = false
             socket.bind(endpoint)
         }
+
+    /** Bind a datagram socket to the exact local address accepted for the current AirPlay link. */
+    fun datagramAt(address: InetAddress, stage: String): DatagramSocket = bindEphemeral(
+        stage,
+        address,
+        { DatagramSocket(null) },
+        { socket, endpoint ->
+            socket.reuseAddress = false
+            socket.bind(endpoint)
+        },
+    )
 
     fun server(reference: InetAddress?, stage: String): ServerSocket =
         bindAcrossWildcards(reference, stage, { ServerSocket() }) { socket, endpoint ->

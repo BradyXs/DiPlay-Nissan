@@ -11,12 +11,41 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.os.Build
+import android.os.Binder
 import android.os.IBinder
+import android.os.Parcel
 import com.shilapi.xcertplay.host.R
 
 /** Keeps an explicitly started connection alive when another car app is in the foreground. */
 class DiPlaySessionService : Service() {
-    override fun onBind(intent: Intent?): IBinder? = null
+    private val sessionStatusBinder = object : Binder() {
+        override fun onTransact(code: Int, data: Parcel, reply: Parcel?, flags: Int): Boolean {
+            if (code != TRANSACTION_GET_SESSION_STATE) return super.onTransact(code, data, reply, flags)
+            val output = reply ?: return false
+            data.enforceInterface(SESSION_STATUS_DESCRIPTOR)
+            if (!isAuthorizedSessionStatusClient()) {
+                output.writeException(SecurityException("Only the Nissan iPod media app may query this status"))
+                return true
+            }
+            val state = when {
+                !CarPlayBackgroundSession.hasSession() -> SESSION_STOPPED
+                CarPlayBackgroundSession.active -> SESSION_ACTIVE
+                else -> SESSION_CONNECTING
+            }
+            output.writeNoException()
+            output.writeInt(state)
+            return true
+        }
+    }
+
+    override fun onBind(intent: Intent?): IBinder? =
+        if (com.shilapi.xcertplay.host.BuildConfig.NISSAN_ANDROID_44_PROFILE) sessionStatusBinder else null
+
+    private fun isAuthorizedSessionStatusClient(): Boolean {
+        if (!com.shilapi.xcertplay.host.BuildConfig.NISSAN_ANDROID_44_PROFILE) return false
+        val callerPackages = packageManager.getPackagesForUid(Binder.getCallingUid()) ?: return false
+        return ALLOWED_SESSION_STATUS_CLIENT in callerPackages
+    }
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
             CarPlayBackgroundSession.stop()
@@ -73,5 +102,11 @@ class DiPlaySessionService : Service() {
     companion object {
         const val ACTION_STOP = "com.shihab.diplay.DISCONNECT"
         private const val CHANNEL = "diplay_connection"
+        private const val ALLOWED_SESSION_STATUS_CLIENT = "com.hsae.d531mc.ipod"
+        private const val SESSION_STATUS_DESCRIPTOR = "com.shilapi.xcertplay.DiPlaySessionService.SessionStatus"
+        private const val TRANSACTION_GET_SESSION_STATE = IBinder.FIRST_CALL_TRANSACTION
+        private const val SESSION_STOPPED = 0
+        private const val SESSION_CONNECTING = 1
+        private const val SESSION_ACTIVE = 2
     }
 }

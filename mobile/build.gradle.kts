@@ -40,8 +40,8 @@ android {
         multiDexEnabled = true
         multiDexKeepProguard = file("multidex-config.pro")
         testInstrumentationRunner = "com.shilapi.xcertplay.T3LegacyInstrumentation"
-        versionCode = 85
-        versionName = "0.2.65"
+        versionCode = 86
+        versionName = "0.2.66"
         nissanAndroid44Abi?.let { abi ->
             ndk {
                 abiFilters += abi
@@ -91,6 +91,7 @@ android {
                 initWith(getByName("release"))
                 // Preserve the installed Nissan test app's package and certificate for updates.
                 applicationIdSuffix = ".hudtest"
+                versionNameSuffix = "-p350-candidate"
                 signingConfig = signingConfigs.getByName("debug")
                 isDebuggable = false
                 isMinifyEnabled = false

@@ -248,7 +248,7 @@ internal object NissanPhoneKeyProbe {
         if (!enabled(context) || !CarPlayBackgroundSession.active) return false
         val current = CarPlayBackgroundSession.snapshot() ?: return false
         val controller = current.controller
-        if (!controller.isWirelessSession() || !AirPlayPersistence.loadCarPlayAudioOutputEnabled(context) ||
+        if (!AirPlayPersistence.loadCarPlayAudioOutputEnabled(context) ||
             controller.activeAirPlaySessionToken() == null || NissanOemPhoneDiagnostics.currentPhoneState() != 0) return false
         val call = controller.currentCallSnapshot()
         return if (call == null) WheelKeySettings.siriKey(context) else call.phase == CarPlayCallPhase.RINGING
@@ -298,7 +298,6 @@ internal object NissanPhoneKeyProbe {
         if (operation == SEEK_UP || operation == SEEK_DOWN) {
             val reason = when {
                 !CarPlayBackgroundSession.active || current == null -> "no_carplay_session"
-                !current.controller.isWirelessSession() -> "not_wireless"
                 !AirPlayPersistence.loadCarPlayAudioOutputEnabled(context) -> "carplay_audio_disabled"
                 current.controller.activeAirPlaySessionToken() == null -> "airplay_inactive"
                 else -> null
@@ -362,7 +361,6 @@ internal object NissanPhoneKeyProbe {
                 val siriReason = when {
                     !WheelKeySettings.siriKey(context) -> "siri_key_disabled"
                     !CarPlayBackgroundSession.active || current == null -> "no_carplay_session"
-                    !current.controller.isWirelessSession() -> "not_wireless"
                     !AirPlayPersistence.loadCarPlayAudioOutputEnabled(context) -> "carplay_audio_disabled"
                     current.controller.activeAirPlaySessionToken() == null -> "airplay_inactive"
                     else -> null
@@ -390,7 +388,6 @@ internal object NissanPhoneKeyProbe {
             }
             val reason = when {
                 !CarPlayBackgroundSession.active -> "no_carplay_session"
-                !current.controller.isWirelessSession() -> "not_wireless"
                 !AirPlayPersistence.loadCarPlayAudioOutputEnabled(context) -> "carplay_audio_disabled"
                 current.controller.activeAirPlaySessionToken() == null -> "airplay_inactive"
                 call.phase != CarPlayCallPhase.RINGING -> "call_not_ringing:${call.phase}"
@@ -420,10 +417,10 @@ internal object NissanPhoneKeyProbe {
         if (operation != TEL_OFF) return
         val reason = when {
             !CarPlayBackgroundSession.active || current == null -> "no_carplay_session"
-            !current.controller.isWirelessSession() -> "not_wireless"
             !AirPlayPersistence.loadCarPlayAudioOutputEnabled(context) -> "carplay_audio_disabled"
             current.controller.activeAirPlaySessionToken() == null -> "airplay_inactive"
-            call?.phase != CarPlayCallPhase.ACTIVE && call?.phase != CarPlayCallPhase.RINGING ->
+            call?.phase != CarPlayCallPhase.ACTIVE && call?.phase != CarPlayCallPhase.RINGING &&
+                call?.phase != CarPlayCallPhase.DIALING ->
                 "call_not_active:${call?.phase ?: "NONE"}"
             else -> null
         }

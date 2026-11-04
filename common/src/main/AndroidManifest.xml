@@ -14,6 +14,9 @@
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <permission
+        android:name="${applicationId}.permission.READ_CARPLAY_SESSION"
+        android:protectionLevel="signatureOrSystem" />
     <queries>
         <!-- Nissan's Android 4.4 Bluetooth pairing list is exposed through this vendor service. -->
         <package android:name="com.anwsdk.service" />
@@ -48,7 +51,9 @@
             </intent-filter>
         </activity>
         <service android:name="com.shilapi.xcertplay.DiPlaySessionService"
-            android:exported="false" android:foregroundServiceType="connectedDevice|microphone|location" />
+            android:exported="false"
+            android:permission="${applicationId}.permission.READ_CARPLAY_SESSION"
+            android:foregroundServiceType="connectedDevice|microphone|location" />
 
         <activity
             android:name="com.shilapi.xcertplay.CarPlayHostActivity"

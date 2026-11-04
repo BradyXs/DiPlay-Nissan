@@ -187,6 +187,15 @@ class CarPlayMediaEngine(
         val meta = AudioMeta(type, format, connectionId, latencyMs)
         val microphone = microphoneConfig(session, type, stream, format)
         if (microphone != null) pendingMicrophone[streamKey] = microphone
+        if (microphone != null) {
+            val peer = when (val address = microphone.host) {
+                is Inet6Address -> "family=IPv6 linkLocal=${address.isLinkLocalAddress} scopeId=${address.scopeId}"
+                is Inet4Address -> "family=IPv4"
+                else -> "family=other"
+            }
+            session.logDebug("AirPlay microphone endpoint type=$audioType inputPort=${microphone.port} $peer " +
+                "local=${AirPlaySocketBinder.scopeDescription(microphone.localAddress)}")
+        }
         if (audioType == "telephony") {
             session.logDebug("AirPlay call microphone setup ready=${microphone != null} " +
                 "inputPort=${(stream["dataPort"] as? Number)?.toInt() ?: 0} codec=${format.codec}")
@@ -569,7 +578,13 @@ class CarPlayMediaEngine(
         if (type != STREAM_TYPE_MAIN_AUDIO) return unavailable("unsupported-stream-type")
         val port = (stream["dataPort"] as? Number)?.toInt() ?: return unavailable("input-port-absent")
         if (port !in 1..65535) return unavailable("input-port-invalid")
-        val host = session.remoteAddress ?: return unavailable("peer-address-absent")
+        val rawHost = session.remoteAddress ?: return unavailable("peer-address-absent")
+        // Wired CarPlay may use an IPv6 link-local peer. Android 4.4 vendor kernels can
+        // accept its TCP session without preserving the interface scope on remoteAddress;
+        // a UDP send can then fail although AudioRecord is running. Preserve/resolve the
+        // TUN interface scope before using this peer as the microphone destination.
+        val localAddress = session.localAddress
+        val host = AirPlaySocketBinder.scopedLinkLocal(rawHost, localAddress)
         val key = dataStreamKey(session, stream, DATASTREAM_INPUT_KEY) ?: return unavailable("input-key-unavailable")
         val formatBits = (stream["audioFormat"] as? Number)?.toLong() ?: 0L
         val framesPerPacket = (stream["framesPerPacket"] as? Number)?.toInt() ?: 0
@@ -597,6 +612,7 @@ class CarPlayMediaEngine(
             codec = format.codec,
             bitrate = if (format.codec == AudioCodecKind.OPUS) opusBitrate else null,
             opusClockRate = MicrophoneConfig.opusClockRate(formatBits),
+            localAddress = localAddress,
         )
     }
 
