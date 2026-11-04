@@ -91,7 +91,7 @@ android {
                 initWith(getByName("release"))
                 // Preserve the installed Nissan test app's package and certificate for updates.
                 applicationIdSuffix = ".hudtest"
-                versionNameSuffix = "-p350-candidate"
+                versionNameSuffix = ""
                 signingConfig = signingConfigs.getByName("debug")
                 isDebuggable = false
                 isMinifyEnabled = false
