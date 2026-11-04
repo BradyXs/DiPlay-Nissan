@@ -1636,6 +1636,16 @@ class CarPlayHostActivity : ComponentActivity() {
                 }
             },
             onMediaAudioChanged = CarPlayMediaKeys::onMediaAudioChanged,
+            onTelephonyAudioStarted = {
+                if (com.shilapi.xcertplay.host.BuildConfig.NISSAN_ANDROID_44_PROFILE &&
+                    controllerGeneration == restartGeneration && !shuttingDown.get() &&
+                    AirPlayPersistence.loadCarPlayAudioOutputEnabled(this)) {
+                    val queued = controller?.sendMediaButton(
+                        com.shilapi.xcertplay.airplay.CarPlayMediaButton.PAUSE,
+                    ) == true
+                    AsyncDiagnosticLog.append(diagnosticLog, "Audio: call media pause queued=$queued")
+                }
+            },
             callEchoCancellation = AirPlayPersistence.loadCallEchoCancellation(this),
             callVoiceFilter = AirPlayPersistence.loadCallVoiceFilter(this),
             keepLegacyNissanAudioMode = com.shilapi.xcertplay.host.BuildConfig.NISSAN_ANDROID_44_PROFILE &&

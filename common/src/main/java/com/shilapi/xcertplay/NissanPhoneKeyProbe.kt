@@ -260,9 +260,14 @@ internal object NissanPhoneKeyProbe {
             record(context, "arbitration commit dropped reason=session_changed")
             return
         }
-        val controller = CarPlayBackgroundSession.snapshot()?.controller ?: return
+        val current = CarPlayBackgroundSession.snapshot() ?: return
+        val controller = current.controller
         val call = controller.currentCallSnapshot()
         if (call == null) {
+            if (current.sink.nissanActiveAudioChannel() == "call") {
+                record(context, "arbitration Siri suppressed reason=call_audio_without_call_state")
+                return
+            }
             val now = SystemClock.elapsedRealtime()
             if (!siriGate.claim(controller, now)) {
                 record(context, "arbitration Siri ignored reason=duplicate")
@@ -359,6 +364,7 @@ internal object NissanPhoneKeyProbe {
         if (operation == TEL_ON) {
             if (call == null) {
                 val siriReason = when {
+                    current?.sink?.nissanActiveAudioChannel() == "call" -> "call_audio_without_call_state"
                     !WheelKeySettings.siriKey(context) -> "siri_key_disabled"
                     !CarPlayBackgroundSession.active || current == null -> "no_carplay_session"
                     !AirPlayPersistence.loadCarPlayAudioOutputEnabled(context) -> "carplay_audio_disabled"

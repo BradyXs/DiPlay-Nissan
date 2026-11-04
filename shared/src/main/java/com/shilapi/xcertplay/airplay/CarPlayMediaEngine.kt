@@ -211,7 +211,6 @@ class CarPlayMediaEngine(
 
         val capture = audioCaptureDirectory?.let { AudioPacketCapture(it, type) }
         if (capture != null) audioCaptures[streamKey] = capture
-        val clockProbe = RtpClockProbe()
         val audio = AudioStream(key, type, session::logDebug, session.localAddress)
         val (dataPort, controlPort) = audio.listen(
             object : AudioStream.Listener {
@@ -225,18 +224,8 @@ class CarPlayMediaEngine(
                     if (audioType != "telephony") microphone?.let { sink.onMicrophoneStarted(streamId, it) }
                 }
 
-                override fun onRtp(rtp: ByteArray, sample: Int) {
-                    clockProbe.observe(sample, System.nanoTime())?.let { hz ->
-                        session.logDebug(
-                            "Audio: rtp clock type=$type audioType=$audioType " +
-                                "audioFormat=0x${java.lang.Long.toHexString((stream["audioFormat"] as? Number)?.toLong() ?: 0L)} " +
-                                "measuredHz=$hz microphoneClockHz=${microphone?.let {
-                                    if (it.codec == AudioCodecKind.OPUS) it.opusClockRate else it.sampleRate
-                                } ?: "none"}",
-                        )
-                    }
+                override fun onRtp(rtp: ByteArray, sample: Int) =
                     sink.onAudioRtp(streamId, format, rtp, sample)
-                }
 
                 override fun onPacket(
                     wire: ByteArray,
@@ -615,13 +604,13 @@ class CarPlayMediaEngine(
         }
         // The Nissan wired VPN uses a 1500-byte MTU. A 20 ms mono 48 kHz LPCM frame
         // is about 2004 bytes including IPv6, UDP and encrypted RTP and may fragment.
-        // Experiment with 10 ms only when the peer did not specify framesPerPacket.
+        // Use 10 ms only when the peer did not specify framesPerPacket.
         val useSmallerWiredFrame = smallWiredLpcmMicrophonePackets &&
             format.codec == AudioCodecKind.LPCM && format.sampleRate == 48_000 &&
             format.channels == 1 && framesPerPacket <= 0
         val frameMillis = if (useSmallerWiredFrame) 10 else requestedFrameMillis
         if (useSmallerWiredFrame) {
-            session.logDebug("Microphone: wired LPCM MTU candidate frameMs=$frameMillis " +
+            session.logDebug("Microphone: wired LPCM frameMs=$frameMillis " +
                 "previousFrameMs=$requestedFrameMillis estimatedIpv6Bytes=1044 tunMtu=1500")
         }
         val opusBitrate = when {

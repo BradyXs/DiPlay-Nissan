@@ -40,8 +40,8 @@ android {
         multiDexEnabled = true
         multiDexKeepProguard = file("multidex-config.pro")
         testInstrumentationRunner = "com.shilapi.xcertplay.T3LegacyInstrumentation"
-        versionCode = 87
-        versionName = "0.2.67"
+        versionCode = 88
+        versionName = "0.2.68"
         nissanAndroid44Abi?.let { abi ->
             ndk {
                 abiFilters += abi

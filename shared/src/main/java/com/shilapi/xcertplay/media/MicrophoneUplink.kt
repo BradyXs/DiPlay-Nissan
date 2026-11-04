@@ -339,10 +339,7 @@ internal class MicrophoneUplink(
                         "bytes=$count recordingState=${recorder.recordingState}")
                 }
                 stats.read(count)
-                if (count > 0) {
-                    stats.pcm(readBuffer, count)
-                    clock?.read(recorder, count / 2)
-                }
+                if (count > 0) clock?.read(recorder, count / 2)
                 if (count < 0) {
                     if (running.get()) {
                         Log.e(TAG, "microphone read failed code=$count")

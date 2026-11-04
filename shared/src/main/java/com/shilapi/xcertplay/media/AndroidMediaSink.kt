@@ -233,6 +233,8 @@ class AndroidMediaSink(
     private val onAudioDiagnostic: (String) -> Unit = {},
     /** True while any music ("media") audio stream is running; called from media threads. */
     private val onMediaAudioChanged: (Boolean) -> Unit = {},
+    /** Notify the host when a telephony audio stream starts. */
+    private val onTelephonyAudioStarted: () -> Unit = {},
     /** Opt-in call echo cancellation, replacing a controllable platform canceller while available. */
     private val callEchoCancellation: Boolean = false,
     /** Cut the bass that head units add when they play a call as music. */
@@ -657,6 +659,9 @@ class AndroidMediaSink(
     }
 
     override fun onAudioStarted(id: AudioStreamId, format: AudioFormat, firstSample: Int) {
+        if (format.audioType.equals(TELEPHONY_AUDIO_TYPE, ignoreCase = true)) {
+            runCatching { onTelephonyAudioStarted() }
+        }
         val channel = AudioChannelMapper.map(
             format.audioType, format.payloadType,
             if (advancedAudioChannelMapping) AudioChannelMappingMode.AUTOMOTIVE_BUS
