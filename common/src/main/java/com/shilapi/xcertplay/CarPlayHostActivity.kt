@@ -1654,6 +1654,8 @@ class CarPlayHostActivity : ComponentActivity() {
             sink = sink,
             microphoneEnabled = microphoneAvailable,
             audioCaptureDirectory = audioCaptureDirectory(),
+            smallWiredLpcmMicrophonePackets =
+                com.shilapi.xcertplay.host.BuildConfig.NISSAN_ANDROID_44_PROFILE && !wirelessEnabled,
         )
 
     private fun createSessionListener(controllerGeneration: Int): AirPlaySessionListener =

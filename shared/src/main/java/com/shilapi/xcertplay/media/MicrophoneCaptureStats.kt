@@ -1,6 +1,7 @@
 package com.shilapi.xcertplay.media
 
 import com.shilapi.xcertplay.airplay.MicrophoneConfig
+import kotlin.math.sqrt
 
 internal enum class MicrophoneFailureStage {
     MIN_BUFFER, ENCODER, RECORDER_CREATION, RECORDER_INITIALIZATION, SOCKET_CREATION,
@@ -19,6 +20,9 @@ internal class MicrophoneCaptureStats(
     private var windowStart = nowNs()
     private var readStart = windowStart
     private var capturedBytes = 0L
+    private var pcmSamples = 0L
+    private var pcmSumSquares = 0L
+    private var pcmPeak = 0
     private var reads = 0L
     private var zeroReads = 0L
     private var readErrors = 0L
@@ -51,6 +55,20 @@ internal class MicrophoneCaptureStats(
         }
     }
 
+    /** Retains only level statistics; PCM content is never stored or reported. */
+    fun pcm(bytes: ByteArray, count: Int) {
+        val limit = minOf(count, bytes.size) and -2
+        var index = 0
+        while (index < limit) {
+            val sample = ((bytes[index + 1].toInt() shl 8) or (bytes[index].toInt() and 0xff)).toShort().toInt()
+            val magnitude = if (sample == Short.MIN_VALUE.toInt()) 32_768 else kotlin.math.abs(sample)
+            pcmPeak = maxOf(pcmPeak, magnitude)
+            pcmSumSquares += sample.toLong() * sample.toLong()
+            pcmSamples++
+            index += 2
+        }
+    }
+
     fun encoded(frameCount: Int, emptyCount: Int) {
         encodedFrames += frameCount.coerceAtLeast(0)
         emptyEncodedFrames += emptyCount.coerceAtLeast(0)
@@ -77,9 +95,12 @@ internal class MicrophoneCaptureStats(
             "captureBytes=$capturedBytes reads=$reads zeroReads=$zeroReads readErrors=$readErrors " +
             "readMaxMs=${readMaxNs / 1_000_000} encodedFrames=$encodedFrames " +
             "emptyEncodedFrames=$emptyEncodedFrames udpSent=$udpSent sendErrors=$sendErrors " +
-            "sendGapMaxMs=${sendGapMaxNs / 1_000_000} ended=$ended")
+            "sendGapMaxMs=${sendGapMaxNs / 1_000_000} pcmRms=${pcmRms()} pcmPeak=$pcmPeak ended=$ended")
         windowStart = now
         capturedBytes = 0
+        pcmSamples = 0
+        pcmSumSquares = 0
+        pcmPeak = 0
         reads = 0
         zeroReads = 0
         readErrors = 0
@@ -93,12 +114,18 @@ internal class MicrophoneCaptureStats(
 
     private fun emit(message: String) { runCatching { report(message) } }
 
+    private fun pcmRms(): Int = if (pcmSamples == 0L) 0 else {
+        sqrt(pcmSumSquares.toDouble() / pcmSamples).toInt()
+    }
+
     companion object {
         private const val REPORT_INTERVAL_NS = 5_000_000_000L
 
         private fun typeAndSource(audioType: String): Pair<String, String> = when (audioType) {
             "telephony" -> "telephony" to "VOICE_COMMUNICATION"
             "speechrecognition" -> "speechrecognition" to "VOICE_RECOGNITION"
+            "default" -> "default" to "MIC"
+            "compatibility" -> "compatibility" to "MIC"
             else -> "other" to "MIC"
         }
 

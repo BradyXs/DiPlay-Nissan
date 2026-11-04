@@ -745,7 +745,8 @@ class AndroidMediaSink(
     override fun onMicrophoneStarted(id: AudioStreamId, config: MicrophoneConfig) {
         // This callback runs on the downlink thread; microphone failures must not stop playback.
         if (nissanMicrophoneCoordination &&
-            (config.audioType == TELEPHONY_AUDIO_TYPE || config.audioType == "speechrecognition")) {
+            (config.audioType == TELEPHONY_AUDIO_TYPE || config.audioType == "speechrecognition" ||
+                config.audioType == "default" || config.audioType == "compatibility")) {
             if (!claimNissanMicrophone(id, config.audioType)) {
                 onAudioDiagnostic("Audio: Nissan microphone unavailable; voice coordination failed " +
                     "type=${config.audioType} stream=$id")

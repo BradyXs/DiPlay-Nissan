@@ -15,10 +15,10 @@ data class MicrophoneConfig(
     val codec: AudioCodecKind = AudioCodecKind.LPCM,
     val bitrate: Int? = null,
     /**
-     * The observed CarPlay clock for an Opus stream. Capture and encoding remain at 48 kHz.
-     * Captured Siri packets for audioFormat 0x20000000 advance by 480 per 20 ms; calls advance by
-     * 960. This private-protocol exception does not establish a 16 kHz RTP clock: unobserved formats
-     * keep the standard 48 kHz Opus RTP clock until equivalent packet evidence is available.
+     * The CarPlay clock for an Opus stream. Capture and encoding remain at 48 kHz. Captured Siri
+     * packets for audioFormat 0x20000000 advance by 480 per 20 ms and calls (0x40000000) by 960;
+     * voice-note format 0x10000000 uses the corresponding 16 kHz clock. Diagnostics can compare
+     * this clock with the iPhone's measured downlink RTP clock.
      */
     val opusClockRate: Int = OPUS_CAPTURE_RATE,
     /** Local address of the AirPlay TCP session; used to keep IPv6 uplink on the same TUN link. */
@@ -43,10 +43,11 @@ data class MicrophoneConfig(
         private const val OPUS_CAPTURE_RATE = 48_000
         private const val OPUS_FRAME_MILLIS = 20
 
-        /** Use the observed Siri 24 kHz clock, retaining 48 kHz for calls and unobserved formats. */
+        /** Use the negotiated Opus format's rate; formats without an Opus bit default to 48 kHz. */
         fun opusClockRate(formatBits: Long): Int = when {
             formatBits and 0x40000000L != 0L -> 48_000
             formatBits and 0x20000000L != 0L -> 24_000
+            formatBits and 0x10000000L != 0L -> 16_000
             else -> OPUS_CAPTURE_RATE
         }
     }

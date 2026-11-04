@@ -38,8 +38,8 @@ interface MediaSink {
 
 /**
  * Concrete [AirPlayMediaHandler] that binds the screen, audio and iAP2 DataStream ports,
- * decrypts their payloads, and hands decoded media to a [MediaSink]. Telephony and speech
- * streams can additionally return a PCM microphone uplink through the sink.
+ * decrypts their payloads, and hands decoded media to a [MediaSink]. Telephony, speech recognition,
+ * and app audio streams that request recording can additionally return a microphone uplink.
  */
 /**
  * Delivers a screen stream's data to [sink] only while [isCurrent]: a replaced stream's thread may still
@@ -61,6 +61,7 @@ class CarPlayMediaEngine(
     private val sink: MediaSink,
     private val microphoneEnabled: Boolean = false,
     private val audioCaptureDirectory: File? = null,
+    private val smallWiredLpcmMicrophonePackets: Boolean = false,
 ) : AirPlayMediaHandler {
     internal data class StreamKey(
         val session: AirPlaySession,
@@ -196,6 +197,13 @@ class CarPlayMediaEngine(
             session.logDebug("AirPlay microphone endpoint type=$audioType inputPort=${microphone.port} $peer " +
                 "local=${AirPlaySocketBinder.scopeDescription(microphone.localAddress)}")
         }
+        if (type == STREAM_TYPE_MAIN_AUDIO && audioType != "media") {
+            session.logDebug(
+                "Audio: setup type=$type audioType=$audioType input=${stream["input"] ?: "none"} " +
+                    "micPort=${if ((stream["dataPort"] as? Number)?.toInt()?.let { it > 0 } == true) "yes" else "no"} " +
+                    "microphone=${if (microphone != null) "on" else "off"} keys=${stream.keys.sorted().joinToString(",")}",
+            )
+        }
         if (audioType == "telephony") {
             session.logDebug("AirPlay call microphone setup ready=${microphone != null} " +
                 "inputPort=${(stream["dataPort"] as? Number)?.toInt() ?: 0} codec=${format.codec}")
@@ -203,6 +211,7 @@ class CarPlayMediaEngine(
 
         val capture = audioCaptureDirectory?.let { AudioPacketCapture(it, type) }
         if (capture != null) audioCaptures[streamKey] = capture
+        val clockProbe = RtpClockProbe()
         val audio = AudioStream(key, type, session::logDebug, session.localAddress)
         val (dataPort, controlPort) = audio.listen(
             object : AudioStream.Listener {
@@ -216,8 +225,18 @@ class CarPlayMediaEngine(
                     if (audioType != "telephony") microphone?.let { sink.onMicrophoneStarted(streamId, it) }
                 }
 
-                override fun onRtp(rtp: ByteArray, sample: Int) =
+                override fun onRtp(rtp: ByteArray, sample: Int) {
+                    clockProbe.observe(sample, System.nanoTime())?.let { hz ->
+                        session.logDebug(
+                            "Audio: rtp clock type=$type audioType=$audioType " +
+                                "audioFormat=0x${java.lang.Long.toHexString((stream["audioFormat"] as? Number)?.toLong() ?: 0L)} " +
+                                "measuredHz=$hz microphoneClockHz=${microphone?.let {
+                                    if (it.codec == AudioCodecKind.OPUS) it.opusClockRate else it.sampleRate
+                                } ?: "none"}",
+                        )
+                    }
                     sink.onAudioRtp(streamId, format, rtp, sample)
+                }
 
                 override fun onPacket(
                     wire: ByteArray,
@@ -569,13 +588,12 @@ class CarPlayMediaEngine(
         stream: Map<String, Any?>,
         format: AudioFormat,
     ): MicrophoneConfig? {
-        if (format.audioType != "telephony" && format.audioType != "speechrecognition") return null
+        if (!microphoneEnabled || type != STREAM_TYPE_MAIN_AUDIO) return null
+        if (!wantsMicrophone(format.audioType, stream)) return null
         fun unavailable(reason: String): MicrophoneConfig? {
             session.logDebug("AirPlay microphone config unavailable type=${format.audioType} reason=$reason")
             return null
         }
-        if (!microphoneEnabled) return unavailable("microphone-disabled")
-        if (type != STREAM_TYPE_MAIN_AUDIO) return unavailable("unsupported-stream-type")
         val port = (stream["dataPort"] as? Number)?.toInt() ?: return unavailable("input-port-absent")
         if (port !in 1..65535) return unavailable("input-port-invalid")
         val rawHost = session.remoteAddress ?: return unavailable("peer-address-absent")
@@ -588,12 +606,23 @@ class CarPlayMediaEngine(
         val key = dataStreamKey(session, stream, DATASTREAM_INPUT_KEY) ?: return unavailable("input-key-unavailable")
         val formatBits = (stream["audioFormat"] as? Number)?.toLong() ?: 0L
         val framesPerPacket = (stream["framesPerPacket"] as? Number)?.toInt() ?: 0
-        val frameMillis = if (format.codec == AudioCodecKind.OPUS) {
+        val requestedFrameMillis = if (format.codec == AudioCodecKind.OPUS) {
             20
         } else if (framesPerPacket > 0) {
             Math.round(framesPerPacket * 1000.0 / format.sampleRate).toInt().coerceIn(5, 60)
         } else {
             20
+        }
+        // The Nissan wired VPN uses a 1500-byte MTU. A 20 ms mono 48 kHz LPCM frame
+        // is about 2004 bytes including IPv6, UDP and encrypted RTP and may fragment.
+        // Experiment with 10 ms only when the peer did not specify framesPerPacket.
+        val useSmallerWiredFrame = smallWiredLpcmMicrophonePackets &&
+            format.codec == AudioCodecKind.LPCM && format.sampleRate == 48_000 &&
+            format.channels == 1 && framesPerPacket <= 0
+        val frameMillis = if (useSmallerWiredFrame) 10 else requestedFrameMillis
+        if (useSmallerWiredFrame) {
+            session.logDebug("Microphone: wired LPCM MTU candidate frameMs=$frameMillis " +
+                "previousFrameMs=$requestedFrameMillis estimatedIpv6Bytes=1044 tunMtu=1500")
         }
         val opusBitrate = when {
             formatBits and OPUS_48K != 0L -> 96_000
@@ -634,7 +663,22 @@ class CarPlayMediaEngine(
     private fun isScreenStreamType(type: Int): Boolean =
         type == STREAM_TYPE_MAIN_SCREEN || type == STREAM_TYPE_ALT_SCREEN
 
-    private companion object {
+    internal companion object {
+        /**
+         * Calls and Siri always record. App audio (for example a voice message) shares its audio
+         * type with guidance prompts, so it records only when the iPhone requests an input stream.
+         * Prefer the explicit input flag; older peers signal the request with an uplink port.
+         */
+        fun wantsMicrophone(audioType: String, stream: Map<String, Any?>): Boolean = when (audioType) {
+            "telephony", "speechrecognition" -> true
+            "default", "compatibility" -> when (val input = stream["input"]) {
+                is Boolean -> input
+                is Number -> input.toInt() != 0
+                else -> (stream["dataPort"] as? Number)?.toInt()?.let { it in 1..65535 } == true
+            }
+            else -> false
+        }
+
         const val TAG = "xcertplay-usb"
         const val STREAM_TYPE_MAIN_SCREEN = 110
         const val STREAM_TYPE_ALT_SCREEN = 111
