@@ -32,6 +32,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.ScheduledFuture
 
 internal fun audioTrackAttributesForFocus(track: AudioTrack, configured: AudioAttributes): AudioAttributes =
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -354,6 +355,12 @@ class AndroidMediaSink(
     private val microphoneUplinks = ConcurrentHashMap<AudioStreamId, MicrophoneUplink>()
     private val coordinatedMicrophones = mutableSetOf<AudioStreamId>()
     private val voiceCoordinationLock = Any()
+    private val voiceRestoreExecutor = Executors.newSingleThreadScheduledExecutor { task ->
+        Thread(task, "nissan-voice-wake-restore").apply { isDaemon = true }
+    }
+    private var pendingVoiceRestore: ScheduledFuture<*>? = null
+    private var voiceWakeReserved = false
+    private var voiceRestoreGeneration = 0L
     private val audioModeLock = Any()
     private var communicationModeStream: AudioStreamId? = null
     private var savedAudioMode = AudioManager.MODE_NORMAL
@@ -768,7 +775,7 @@ class AndroidMediaSink(
             }
             val uplink = microphoneUplinks[id] ?: run {
                 val candidate = MicrophoneUplink(config, onAudioDiagnostic,
-                    if (config.audioType == TELEPHONY_AUDIO_TYPE) callEchoReferences[id] else null)
+                    if (config.audioType == TELEPHONY_AUDIO_TYPE) callEchoReferences[id.copy(microphoneGeneration = 0)] else null)
                 microphoneUplinks.putIfAbsent(id, candidate) ?: candidate
             }
             if (!uplink.start()) {
@@ -794,9 +801,14 @@ class AndroidMediaSink(
 
     private fun claimNissanMicrophone(id: AudioStreamId, audioType: String): Boolean =
         synchronized(voiceCoordinationLock) {
+            if (audioClosed) return@synchronized false
             if (id in coordinatedMicrophones) return@synchronized true
-            if (coordinatedMicrophones.isEmpty() && nissanVoiceWakeCoordinator?.pauseForMicrophone() != true) {
-                return@synchronized false
+            voiceRestoreGeneration++
+            pendingVoiceRestore?.cancel(false)
+            pendingVoiceRestore = null
+            if (!voiceWakeReserved) {
+                if (nissanVoiceWakeCoordinator?.pauseForMicrophone() != true) return@synchronized false
+                voiceWakeReserved = true
             }
             coordinatedMicrophones.add(id)
             onAudioDiagnostic("Microphone: Nissan voice wake reserved type=$audioType stream=$id " +
@@ -809,7 +821,22 @@ class AndroidMediaSink(
             if (!coordinatedMicrophones.remove(id)) return
             onAudioDiagnostic("Microphone: Nissan voice wake released stream=$id " +
                 "active=${coordinatedMicrophones.size}")
-            if (coordinatedMicrophones.isEmpty()) nissanVoiceWakeCoordinator?.restoreAfterMicrophone()
+            if (coordinatedMicrophones.isEmpty() && voiceWakeReserved && !audioClosed) {
+                // A phone may replace a call stream immediately. Keep the OEM wake recorder
+                // paused briefly so its asynchronous restart cannot race the next capture.
+                val generation = ++voiceRestoreGeneration
+                pendingVoiceRestore = voiceRestoreExecutor.schedule({
+                    synchronized(voiceCoordinationLock) {
+                        if (generation != voiceRestoreGeneration) return@synchronized
+                        pendingVoiceRestore = null
+                        if (coordinatedMicrophones.isEmpty() && voiceWakeReserved && !audioClosed) {
+                            voiceWakeReserved = false
+                            nissanVoiceWakeCoordinator?.restoreAfterMicrophone()
+                        }
+                    }
+                }, 750L, TimeUnit.MILLISECONDS)
+                onAudioDiagnostic("Microphone: Nissan voice wake restore deferred delayMs=750")
+            }
         }
     }
 
@@ -885,8 +912,15 @@ class AndroidMediaSink(
         } finally {
             microphoneUplinks.clear()
             restoreAudioMode(null)
-            synchronized(voiceCoordinationLock) { coordinatedMicrophones.clear() }
-            nissanVoiceWakeCoordinator?.close()
+            synchronized(voiceCoordinationLock) {
+                voiceRestoreGeneration++
+                pendingVoiceRestore?.cancel(false)
+                pendingVoiceRestore = null
+                coordinatedMicrophones.clear()
+                voiceWakeReserved = false
+                nissanVoiceWakeCoordinator?.close()
+            }
+            voiceRestoreExecutor.shutdownNow()
         }
     }
 

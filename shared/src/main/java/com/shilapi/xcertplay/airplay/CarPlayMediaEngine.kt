@@ -11,9 +11,10 @@ import java.math.BigInteger
 import java.util.Collections
 import java.util.WeakHashMap
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicLong
 
-/** Identity of one CarPlay audio stream: the stream type plus its CarPlay audio type. */
-data class AudioStreamId(val type: Int, val audioType: String)
+/** Audio identity; microphone instances additionally carry an ownership token. */
+data class AudioStreamId(val type: Int, val audioType: String, val microphoneGeneration: Long = 0)
 
 /** Rendering seam for the decrypted CarPlay media streams. */
 interface MediaSink {
@@ -85,7 +86,8 @@ class CarPlayMediaEngine(
 
     private val streams = ConcurrentHashMap<StreamKey, Closeable>()
     private val audioMeta = ConcurrentHashMap<StreamKey, AudioMeta>()
-    private val pendingMicrophone = ConcurrentHashMap<StreamKey, MicrophoneConfig>()
+    private data class PendingMicrophone(val id: AudioStreamId, val config: MicrophoneConfig)
+    private val pendingMicrophone = ConcurrentHashMap<StreamKey, PendingMicrophone>()
     private val audioCaptures = ConcurrentHashMap<StreamKey, AudioPacketCapture>()
     private val pendingIapTunnels = ConcurrentHashMap<AirPlaySession, PendingIapTunnel>()
     private val bufferedStreams = ConcurrentHashMap<AirPlaySession, BufferedStream>()
@@ -167,7 +169,7 @@ class CarPlayMediaEngine(
         streams.remove(streamKey)?.close()
         audioMeta.remove(streamKey)
         audioCaptures.remove(streamKey)?.close()
-        if (pendingMicrophone.remove(streamKey) != null) sink.onMicrophoneStopped(streamId)
+        pendingMicrophone.remove(streamKey)?.let { sink.onMicrophoneStopped(it.id) }
         sink.onAudioStopped(streamId)
 
         val key = outputKey(session, stream) ?: return null
@@ -187,7 +189,10 @@ class CarPlayMediaEngine(
         val latencyMs = (stream["audioLatencyMs"] as? Number)?.toInt() ?: 0
         val meta = AudioMeta(type, format, connectionId, latencyMs)
         val microphone = microphoneConfig(session, type, stream, format)
-        if (microphone != null) pendingMicrophone[streamKey] = microphone
+        val pendingMic = microphone?.let {
+            PendingMicrophone(streamId.copy(microphoneGeneration = nextMicrophoneGeneration.incrementAndGet()), it)
+        }
+        if (pendingMic != null) pendingMicrophone[streamKey] = pendingMic
         if (microphone != null) {
             val peer = when (val address = microphone.host) {
                 is Inet6Address -> "family=IPv6 linkLocal=${address.isLinkLocalAddress} scopeId=${address.scopeId}"
@@ -221,7 +226,10 @@ class CarPlayMediaEngine(
                         session.logDebug("AirPlay call downlink first RTP received type=$type codec=${format.codec}")
                     }
                     sink.onAudioStarted(streamId, format, firstSample)
-                    if (audioType != "telephony") microphone?.let { sink.onMicrophoneStarted(streamId, it) }
+                    if (audioType != "telephony" && pendingMic != null && pendingMicrophone[streamKey] === pendingMic) {
+                        sink.onMicrophoneStarted(pendingMic.id, pendingMic.config)
+                        if (pendingMicrophone[streamKey] !== pendingMic) sink.onMicrophoneStopped(pendingMic.id)
+                    }
                 }
 
                 override fun onRtp(rtp: ByteArray, sample: Int) =
@@ -250,17 +258,17 @@ class CarPlayMediaEngine(
                 }
             }, "carplay-call-downlink-watch").apply { isDaemon = true; start() }
         }
-        if (audioType == "telephony" && microphone != null) {
+        if (audioType == "telephony" && pendingMic != null) {
             // Some iPhones wait for the uplink before sending the first call packet.
             // Starting only from onStarted can leave both directions waiting forever.
             Thread({
                 try { Thread.sleep(200L) } catch (_: InterruptedException) { return@Thread }
-                if (streams[streamKey] !== audio || pendingMicrophone[streamKey] !== microphone) return@Thread
+                if (streams[streamKey] !== audio || pendingMicrophone[streamKey] !== pendingMic) return@Thread
                 session.logDebug("AirPlay call microphone start begin type=$audioType")
-                sink.onMicrophoneStarted(streamId, microphone)
+                sink.onMicrophoneStarted(pendingMic.id, pendingMic.config)
                 session.logDebug("AirPlay call microphone start returned type=$audioType")
-                if (streams[streamKey] !== audio || pendingMicrophone[streamKey] !== microphone) {
-                    sink.onMicrophoneStopped(streamId)
+                if (streams[streamKey] !== audio || pendingMicrophone[streamKey] !== pendingMic) {
+                    sink.onMicrophoneStopped(pendingMic.id)
                 }
             }, "carplay-call-mic-start").apply { isDaemon = true; start() }
         }
@@ -490,7 +498,7 @@ class CarPlayMediaEngine(
         val tornDown = streams.keys.filter { it.session === session && it.type == type }
         tornDown.forEach { key ->
             val streamId = AudioStreamId(key.type, key.audioType)
-            if (pendingMicrophone.remove(key) != null) sink.onMicrophoneStopped(streamId)
+            pendingMicrophone.remove(key)?.let { sink.onMicrophoneStopped(it.id) }
             audioMeta.remove(key)
             audioCaptures.remove(key)?.close()
             // BufferedAudioStream owns serialized sink cleanup; stopping it first from here
@@ -653,6 +661,7 @@ class CarPlayMediaEngine(
         type == STREAM_TYPE_MAIN_SCREEN || type == STREAM_TYPE_ALT_SCREEN
 
     internal companion object {
+        private val nextMicrophoneGeneration = AtomicLong()
         /**
          * Calls and Siri always record. App audio (for example a voice message) shares its audio
          * type with guidance prompts, so it records only when the iPhone requests an input stream.

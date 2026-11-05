@@ -9,6 +9,7 @@ import android.bluetooth.BluetoothProfile
 import com.shilapi.xcertplay.compat.BluetoothCompat
 import com.shilapi.xcertplay.compat.realSdkInt
 import com.shilapi.xcertplay.bluetooth.BluetoothAddressResolver
+import com.shilapi.xcertplay.bluetooth.AnwPhoneLinkSnapshot
 import com.shilapi.xcertplay.bluetooth.CarPlayBluetoothManager
 import com.shilapi.xcertplay.bluetooth.CarPlayBluetoothDevice
 import com.shilapi.xcertplay.bluetooth.HybridBluetoothAdapter
@@ -239,6 +240,9 @@ class CarPlayController(
     @Volatile private var activeSession: AirPlaySession? = null
     private val playbackStatus = com.shilapi.xcertplay.media.CarPlayPlaybackStatus()
     private val callState = CarPlayCallState()
+    private val phoneIdentityDiagnosticRunning = java.util.concurrent.atomic.AtomicBoolean(false)
+    // Guard key events that straddle the final call-state update; protected by callState.
+    private var lastCallEndedAtMs = 0L
 
     /** Told when the iPhone starts or stops playing media; may run on any thread. */
     @Volatile var playbackListener: ((Boolean) -> Unit)? = null
@@ -298,13 +302,14 @@ class CarPlayController(
 
     private val sessionListener = object : AirPlaySessionListener {
         override fun onSessionActive(session: AirPlaySession) {
-            if (activeSession !== session) synchronized(callState) { callState.clear() }
+            if (activeSession !== session) synchronized(callState) { callState.clear(); lastCallEndedAtMs = 0L }
             activeSession = session
             if (config.transport == CarPlayTransport.WIRED) wiredTcpArrived.set(true)
             debugLog(
                 "AirPlay session active controller=${session.controllerId ?: "unknown"} " +
                     "peer=${session.host}",
             )
+            diagnoseNissanPhoneIdentity(session, "session-active")
             uiListener?.onSessionActive(session)
         }
 
@@ -312,7 +317,7 @@ class CarPlayController(
             if (activeSession === session) {
                 onAirPlayDucking(false)
                 activeSession = null
-                synchronized(callState) { callState.clear() }
+                synchronized(callState) { callState.clear(); lastCallEndedAtMs = 0L }
                 synchronized(playbackStatus) {
                     val wasPlaying = playbackStatus.playing
                     playbackStatus.clearAll()?.let { it to wasPlaying }
@@ -446,6 +451,38 @@ class CarPlayController(
     fun currentCallSnapshot(): CarPlayCallSnapshot? =
         if (closed || activeSession == null) null else synchronized(callState) { callState.current() }
 
+    /** True briefly after a reported call ends, scoped to the current AirPlay session. */
+    fun callEndedRecently(windowMs: Long): Boolean =
+        if (closed || activeSession == null) false else synchronized(callState) {
+            val elapsed = SystemClock.elapsedRealtime() - lastCallEndedAtMs
+            lastCallEndedAtMs != 0L && elapsed in 0L..windowMs
+        }
+
+    /** Compare only as a diagnostic; the AirPlay device ID is not a verified HFP identity. */
+    private fun diagnoseNissanPhoneIdentity(session: AirPlaySession, reason: String) {
+        if (!AnwPhoneLinkSnapshot.isInstalled(appContext)) return
+        if (!phoneIdentityDiagnosticRunning.compareAndSet(false, true)) return
+        val candidate = BluetoothAddressResolver.normalize(session.deviceBtMac)
+        Thread({
+            try {
+                val result = runCatching { AnwPhoneLinkSnapshot.connectedDevice(appContext, 1_500L) }
+                if (closed || activeSession !== session) return@Thread
+                val oemAddress = result.getOrNull()?.address
+                val match = when {
+                    result.isFailure -> "unavailable"
+                    oemAddress == null -> "oem_hfp_unavailable_or_disconnected"
+                    candidate == null -> "no_airplay_candidate"
+                    candidate.equals(oemAddress, ignoreCase = true) -> "equal"
+                    else -> "different"
+                }
+                debugLog("Nissan phone identity diagnostic reason=$reason transport=${config.transport} " +
+                    "candidateComparison=$match candidateIsVerifiedHfpIdentity=false")
+            } finally {
+                phoneIdentityDiagnosticRunning.set(false)
+            }
+        }, "nissan-phone-identity").apply { isDaemon = true; start() }
+    }
+
     fun hasActiveAirPlayAttachment(): Boolean = synchronized(lifecycleLock) {
         !closed && vpnService?.isAttached() == true
     }
@@ -576,7 +613,7 @@ class CarPlayController(
             if (closed) return
             closed = true
         }
-        synchronized(callState) { callState.clear() }
+        synchronized(callState) { callState.clear(); lastCallEndedAtMs = 0L }
         firstTcpWatchdog?.terminate()
         startupTimer.shutdownNow()
         (hotspot as? ManualHotspotManager)?.close()
@@ -651,12 +688,19 @@ class CarPlayController(
         }
         if (frame.messageId == CarPlayCallState.CALL_STATE_UPDATE && !closed) {
             val update = synchronized(callState) {
+                val previous = callState.current()
                 callState.accept(frame)?.let { status ->
-                    Triple(status, callState.current()?.phase, callState.count())
+                    val current = callState.current()
+                    if (previous != null && current == null) lastCallEndedAtMs = SystemClock.elapsedRealtime()
+                    else if (current != null) lastCallEndedAtMs = 0L
+                    Triple(status, current?.phase, callState.count())
                 }
             }
             if (update != null) {
                 debugLog("iAP2 call state status=${update.first} phase=${update.second ?: "ENDED"} count=${update.third}")
+                if (update.second == CarPlayCallPhase.RINGING) {
+                    activeSession?.let { diagnoseNissanPhoneIdentity(it, "call-ringing") }
+                }
             } else {
                 debugLog("iAP2 call state malformed")
             }

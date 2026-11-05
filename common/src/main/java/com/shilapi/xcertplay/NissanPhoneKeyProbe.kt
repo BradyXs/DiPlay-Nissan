@@ -39,6 +39,8 @@ internal object NissanPhoneKeyProbe {
     private const val WHEEL_VOLUME_UP = 28
     private const val WHEEL_VOLUME_DOWN = 29
     private const val BIND_WAIT_MS = 5_000L
+    // Absorb late answer events while the phone and head unit settle after hangup.
+    private const val CALL_END_KEY_GUARD_MS = 2_000L
 
     @Volatile private var relay: IBinder? = null
     @Volatile private var ready = CountDownLatch(1)
@@ -251,7 +253,8 @@ internal object NissanPhoneKeyProbe {
         if (!AirPlayPersistence.loadCarPlayAudioOutputEnabled(context) ||
             controller.activeAirPlaySessionToken() == null || NissanOemPhoneDiagnostics.currentPhoneState() != 0) return false
         val call = controller.currentCallSnapshot()
-        return if (call == null) WheelKeySettings.siriKey(context) else call.phase == CarPlayCallPhase.RINGING
+        return call != null || current.sink.nissanActiveAudioChannel() == "call" ||
+            controller.callEndedRecently(CALL_END_KEY_GUARD_MS) || WheelKeySettings.siriKey(context)
     }
 
     /** The firmware has already consumed this key; never run the legacy OEM-voice workaround. */
@@ -266,6 +269,10 @@ internal object NissanPhoneKeyProbe {
         if (call == null) {
             if (current.sink.nissanActiveAudioChannel() == "call") {
                 record(context, "arbitration Siri suppressed reason=call_audio_without_call_state")
+                return
+            }
+            if (controller.callEndedRecently(CALL_END_KEY_GUARD_MS)) {
+                record(context, "arbitration answer consumed reason=recent_call_end")
                 return
             }
             val now = SystemClock.elapsedRealtime()
@@ -284,6 +291,8 @@ internal object NissanPhoneKeyProbe {
             val sent = controller.answerCall()
             if (!sent) answerGate.release(controller, call.epoch)
             record(context, "arbitration answer sent=$sent")
+        } else {
+            record(context, "arbitration answer consumed reason=call_${call.phase.name.lowercase()}")
         }
     }
 
