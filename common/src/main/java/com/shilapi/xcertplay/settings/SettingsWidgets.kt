@@ -2,8 +2,12 @@ package com.shilapi.xcertplay.settings
 
 import android.content.Context
 import android.content.res.ColorStateList
+import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.RectF
 import android.graphics.Typeface
+import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.StateListDrawable
 import android.view.Gravity
@@ -74,7 +78,7 @@ object SettingsWidgets {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
-        val switch = Switch(context).apply {
+        val switch = (if (theme.isOverlay) Switch(context) else FlatSwitch(context, theme)).apply {
             isChecked = checked
             this.contentDescription = contentDescription
             isEnabled = enabled
@@ -101,18 +105,9 @@ object SettingsWidgets {
                 thumbTextPadding = 0
                 minWidth = theme.dp(context, 50)
                 minHeight = theme.dp(context, 36)
-                // Android 4.4 does not tint the platform Switch. Draw both states here so
-                // the Nissan unit shows the same clear green/grey control as newer Android.
-                thumbDrawable = StateListDrawable().apply {
-                    addState(intArrayOf(-android.R.attr.state_enabled), switchThumb(context, theme, false))
-                    addState(intArrayOf(android.R.attr.state_checked), switchThumb(context, theme, true))
-                    addState(intArrayOf(), switchThumb(context, theme, false))
-                }
-                trackDrawable = StateListDrawable().apply {
-                    addState(intArrayOf(-android.R.attr.state_enabled), switchTrack(context, theme, false))
-                    addState(intArrayOf(android.R.attr.state_checked), switchTrack(context, theme, true))
-                    addState(intArrayOf(), switchTrack(context, theme, false))
-                }
+                // The Nissan toolbox draws the switch itself; keep platform artwork transparent.
+                thumbDrawable = ColorDrawable(Color.TRANSPARENT)
+                trackDrawable = ColorDrawable(Color.TRANSPARENT)
             }
             setOnCheckedChangeListener { _, isChecked -> onChanged(isChecked) }
         }
@@ -147,7 +142,7 @@ object SettingsWidgets {
             textCol.addView(labelView)
             textCol.addView(descView)
             row.addView(textCol, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-            row.addView(switch, LinearLayout.LayoutParams(theme.dp(context, 54), theme.dp(context, 36)))
+            row.addView(switch, LinearLayout.LayoutParams(theme.dp(context, 52), theme.dp(context, 32)))
             // The whole row is the target; the switch stays out of the focus order so D-pad stops once.
             switch.isFocusable = false
             row.isFocusable = true
@@ -195,20 +190,33 @@ object SettingsWidgets {
     private const val COLLAPSED_DESCRIPTION_LINES = 2
     private const val ROW_RIPPLE = 0x336F9FD9
 
-    private fun switchThumb(context: Context, theme: SettingsTheme, enabled: Boolean) =
-        GradientDrawable().apply {
-            shape = GradientDrawable.OVAL
-            setColor(Color.WHITE)
-            setSize(theme.dp(context, 24), theme.dp(context, 24))
-            if (!enabled) setStroke(theme.dp(context, 1), Color.rgb(215, 218, 223))
+    /** Canvas switch matching the 52×32 dp control in NissanHeadunitManager's toolbox. */
+    private class FlatSwitch(context: Context, private val theme: SettingsTheme) : Switch(context) {
+        private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+
+        init {
+            setPadding(0, 0, 0, 0)
+            setBackgroundColor(Color.TRANSPARENT)
         }
 
-    private fun switchTrack(context: Context, theme: SettingsTheme, enabled: Boolean) =
-        GradientDrawable().apply {
-            setColor(if (enabled) theme.accentTrack else theme.trackOff)
-            cornerRadius = theme.dp(context, 17).toFloat()
-            setSize(theme.dp(context, 50), theme.dp(context, 30))
+        override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+            setMeasuredDimension(theme.dp(context, 52), theme.dp(context, 32))
         }
+
+        override fun onDraw(canvas: Canvas) {
+            super.onDraw(canvas)
+            val width = width.toFloat()
+            val height = height.toFloat()
+            if (width <= 0f || height <= 0f) return
+            val radius = height / 2f
+            paint.color = if (isChecked) theme.accentTrack else theme.trackOff
+            canvas.drawRoundRect(RectF(0f, 0f, width, height), radius, radius, paint)
+            paint.color = Color.WHITE
+            val knobRadius = radius - theme.dp(context, 2)
+            val knobX = if (isChecked) width - radius else radius
+            canvas.drawCircle(knobX, radius, knobRadius, paint)
+        }
+    }
 
     fun <T> createChoiceRow(
         context: Context,
@@ -351,7 +359,8 @@ object SettingsWidgets {
             seekBar,
             LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
+                if (theme == SettingsTheme.CARD) theme.dp(context, 44)
+                else ViewGroup.LayoutParams.WRAP_CONTENT,
             ).apply { topMargin = theme.dp(context, 8) },
         )
 

@@ -116,7 +116,9 @@ internal class DiPlayAudioCards(
                 true
             }
         }
-        parent.addView(slider, LinearLayout.LayoutParams(-1, -2))
+        // Match the toolbox's fixed-height touch track; WRAP_CONTENT can measure too short
+        // inside this dynamically built settings card on the Nissan API 19 build.
+        parent.addView(slider, LinearLayout.LayoutParams(-1, dp(44)))
         parent.addView(space(12))
     }
 
@@ -187,7 +189,7 @@ internal class DiPlayAudioCards(
             }
             true
         }
-        parent.addView(slider, LinearLayout.LayoutParams(-1, -2))
+        parent.addView(slider, LinearLayout.LayoutParams(-1, dp(44)))
         parent.addView(label(activity.getString(descriptionId), 14, DiPlayCardUi.MUTED))
         parent.addView(space(12))
         readAsync { current, error ->

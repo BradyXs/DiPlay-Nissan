@@ -2,12 +2,13 @@ package com.shilapi.xcertplay
 
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.drawable.ColorDrawable
+import android.graphics.drawable.LayerDrawable
 import android.view.MotionEvent
 import android.widget.SeekBar
 import androidx.appcompat.content.res.AppCompatResources
 import com.shilapi.xcertplay.host.R
 import org.junit.Assert.assertNotNull
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -54,7 +55,9 @@ class SettingsVisualsResourceTest {
         val track = CarPlayProgressStyle.track(context)
         track.setBounds(0, 0, 480, 88)
         track.level = 5_000
-        assertNull(slider.thumb)
+        assertTrue(slider.thumb is ColorDrawable)
+        assertEquals(0, slider.thumbOffset)
+        assertTrue(slider.progressDrawable is LayerDrawable)
         assertEquals(5_000, track.level)
         assertEquals(480, track.bounds.width())
 

@@ -19,6 +19,8 @@ import android.content.res.Configuration
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.RippleDrawable
+import android.graphics.drawable.StateListDrawable
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -790,23 +792,56 @@ class DiPlayActivity : ComponentActivity() {
 
     private fun settingsHeader(compact: Boolean): LinearLayout = row().apply {
         gravity = Gravity.CENTER_VERTICAL
-        addView(FrameLayout(this@DiPlayActivity).apply {
+        val backTargetWidth = dp(64)
+        val backTargetHeight = dp(56)
+        val backButton = FrameLayout(this@DiPlayActivity).apply {
             contentDescription = getString(R.string.back)
             isClickable = true
             isFocusable = true
-            background = compatibleRipple(ColorStateList.valueOf(RIPPLE),
-                rounded(Color.TRANSPARENT, Color.TRANSPARENT), null)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) foreground = focusRing(12)
+            val normalFace = GradientDrawable().apply {
+                setColor(Color.argb(24, 255, 255, 255))
+                cornerRadius = dp(18).toFloat()
+                setStroke(dp(1), Color.argb(54, 255, 255, 255))
+            }
+            val pressedFace = GradientDrawable().apply {
+                setColor(Color.argb(66, 44, 159, 245))
+                cornerRadius = dp(18).toFloat()
+                setStroke(dp(1), Color.argb(190, 76, 181, 255))
+            }
+            val focusedFace = GradientDrawable().apply {
+                setColor(Color.argb(44, 44, 159, 245))
+                cornerRadius = dp(18).toFloat()
+                setStroke(dp(2), ACCENT)
+            }
+            background = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                RippleDrawable(
+                    ColorStateList(
+                        arrayOf(intArrayOf(android.R.attr.state_focused), intArrayOf()),
+                        intArrayOf(Color.argb(94, 76, 181, 255), Color.argb(72, 76, 181, 255)),
+                    ),
+                    normalFace,
+                    GradientDrawable().apply {
+                        setColor(Color.WHITE)
+                        cornerRadius = dp(18).toFloat()
+                    },
+                )
+            } else {
+                StateListDrawable().apply {
+                    addState(intArrayOf(android.R.attr.state_pressed), pressedFace)
+                    addState(intArrayOf(android.R.attr.state_focused), focusedFace)
+                    addState(intArrayOf(), normalFace)
+                }
+            }
             addView(ImageView(this@DiPlayActivity).apply {
-                setImageDrawable(AppCompatResources.getDrawable(this@DiPlayActivity, R.drawable.ic_dp_chevron))
-                setColorFilter(TEXT)
-                rotation = 180f
+                setImageDrawable(AppCompatResources.getDrawable(this@DiPlayActivity, R.drawable.ic_dp_back))
+                setColorFilter(ACCENT)
                 importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
-            }, FrameLayout.LayoutParams(dp(24), dp(24), Gravity.CENTER))
+            }, FrameLayout.LayoutParams(dp(26), dp(26), Gravity.CENTER))
             setOnClickListener { navigateBack() }
-        }, LinearLayout.LayoutParams(dp(48), dp(52)))
+        }
+        addView(backButton, LinearLayout.LayoutParams(backTargetWidth, backTargetHeight))
         addView(label(getString(R.string.settings), if (compact) 22 else 27, TEXT, true).apply {
-            setPadding(dp(4), 0, dp(12), 0)
+            setPadding(dp(10), 0, dp(12), 0)
         }, LinearLayout.LayoutParams(0, dp(52), 1f))
     }
 

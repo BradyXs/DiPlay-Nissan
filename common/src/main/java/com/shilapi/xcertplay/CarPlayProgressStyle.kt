@@ -1,105 +1,69 @@
 package com.shilapi.xcertplay
 
 import android.content.Context
-import android.graphics.Canvas
 import android.graphics.Color
-import android.graphics.ColorFilter
-import android.graphics.Paint
-import android.graphics.PixelFormat
-import android.graphics.RectF
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.Drawable
+import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.LayerDrawable
+import android.graphics.drawable.ScaleDrawable
+import android.view.Gravity
 import android.widget.ProgressBar
 import android.widget.SeekBar
 
-/** Draw the complete track at the drawable's own level on API 19 and newer. */
+/** API 19-compatible progress styling shared with the Nissan head-unit manager toolbox. */
 internal object CarPlayProgressStyle {
     private fun dp(context: Context, value: Int) =
         (value * context.resources.displayMetrics.density + 0.5f).toInt()
 
-    fun seekBar(context: Context): SeekBar = FlatSeekBar(context)
-
-    fun progressBar(context: Context): ProgressBar = FlatProgressBar(context)
-
-    fun track(context: Context): Drawable = FlatTrack(dp(context, 6).toFloat())
-
-    private fun drawTrack(view: android.view.View, canvas: Canvas, progress: Int, max: Int,
-        track: FlatTrack) {
-        track.setBounds(view.paddingLeft, 0, view.width - view.paddingRight, view.height)
-        track.level = if (max > 0) ((progress.toLong() * 10_000L) / max).toInt() else 0
-        track.draw(canvas)
+    fun seekBar(context: Context): SeekBar = SeekBar(context).apply {
+        minimumHeight = dp(context, 44)
+        progressDrawable = progressDrawable(context, verticalInsetDp = 14, cornerRadiusDp = 8)
+        // The toolbox uses a transparent native thumb and zero offset. SeekBar still handles
+        // touch tracking and level updates; only its visual handle is hidden.
+        thumb = ColorDrawable(Color.TRANSPARENT)
+        thumbOffset = 0
     }
 
-    private class FlatSeekBar(context: Context) : SeekBar(context) {
-        private val track = FlatTrack(dp(context, 6).toFloat())
+    fun progressBar(context: Context): ProgressBar = ProgressBar(
+        context,
+        null,
+        android.R.attr.progressBarStyleHorizontal,
+    ).apply {
+        isIndeterminate = false
+        // The floating volume HUD is only 10 dp tall, so it cannot use the 14 dp inset
+        // required by the 44 dp settings SeekBar.
+        progressDrawable = progressDrawable(context, verticalInsetDp = 0, cornerRadiusDp = 5)
+    }
 
-        init {
-            minimumHeight = dp(context, 44)
-            progressDrawable = ColorDrawable(Color.TRANSPARENT)
-            thumb = null
-            thumbOffset = 0
+    fun track(context: Context): Drawable = progressDrawable(context, verticalInsetDp = 14, cornerRadiusDp = 8)
+
+    private fun progressDrawable(
+        context: Context,
+        verticalInsetDp: Int,
+        cornerRadiusDp: Int,
+    ): LayerDrawable {
+        val track = GradientDrawable().apply {
+            setColor(TRACK_COLOR)
+            cornerRadius = dp(context, cornerRadiusDp).toFloat()
         }
-
-        override fun onDraw(canvas: Canvas) {
-            super.onDraw(canvas)
-            drawTrack(this, canvas, progress, max, track)
+        val fill = GradientDrawable(
+            GradientDrawable.Orientation.LEFT_RIGHT,
+            intArrayOf(FILL_START_COLOR, FILL_END_COLOR),
+        ).apply {
+            cornerRadius = dp(context, cornerRadiusDp).toFloat()
+        }
+        val scaledFill = ScaleDrawable(fill, Gravity.LEFT, 1f, -1f)
+        val verticalInset = dp(context, verticalInsetDp)
+        return LayerDrawable(arrayOf(track, scaledFill)).apply {
+            setId(0, android.R.id.background)
+            setId(1, android.R.id.progress)
+            setLayerInset(0, 0, verticalInset, 0, verticalInset)
+            setLayerInset(1, 0, verticalInset, 0, verticalInset)
         }
     }
 
-    private class FlatProgressBar(context: Context) : ProgressBar(context, null,
-        android.R.attr.progressBarStyleHorizontal) {
-        private val track = FlatTrack(dp(context, 6).toFloat())
-
-        init {
-            isIndeterminate = false
-            progressDrawable = ColorDrawable(Color.TRANSPARENT)
-        }
-
-        override fun onDraw(canvas: Canvas) {
-            super.onDraw(canvas)
-            drawTrack(this, canvas, progress, max, track)
-        }
-    }
-
-    private class FlatTrack(private val height: Float) : Drawable() {
-        private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
-        private val bar = RectF()
-        private var opacity = 255
-
-        override fun draw(canvas: Canvas) {
-            val bounds = bounds
-            if (bounds.width() <= 0 || bounds.height() <= 0) return
-            val centerY = bounds.exactCenterY()
-            val radius = height / 2f
-            bar.set(bounds.left.toFloat(), centerY - radius, bounds.right.toFloat(), centerY + radius)
-            paint.color = Color.rgb(57, 75, 95)
-            paint.alpha = opacity
-            canvas.drawRect(bar, paint)
-
-            val fraction = level.coerceIn(0, 10_000) / 10_000f
-            if (fraction <= 0f) return
-            bar.right = bounds.left + bounds.width() * fraction
-            paint.color = Color.rgb(64, 211, 227)
-            paint.alpha = opacity
-            canvas.drawRect(bar, paint)
-        }
-
-        override fun onLevelChange(level: Int): Boolean {
-            invalidateSelf()
-            return true
-        }
-
-        override fun setAlpha(alpha: Int) {
-            opacity = alpha.coerceIn(0, 255)
-            invalidateSelf()
-        }
-
-        override fun setColorFilter(colorFilter: ColorFilter?) {
-            paint.colorFilter = colorFilter
-            invalidateSelf()
-        }
-
-        override fun getOpacity(): Int = PixelFormat.TRANSLUCENT
-        override fun getIntrinsicHeight(): Int = height.toInt()
-    }
+    private const val TRACK_COLOR = 0xff69717b.toInt()
+    private const val FILL_START_COLOR = 0xff66e0eb.toInt()
+    private const val FILL_END_COLOR = 0xff2c97f5.toInt()
 }

@@ -101,6 +101,24 @@ class AdaptiveSettingsUiTest {
         assertFalse(texts(screen).any { it.text.toString() == "Search" })
     }
 
+    @Test fun settingsHeaderBackButtonHasLargeTargetAndReturnsToOverview() {
+        val screen = openSettings()
+        ReflectionHelpers.setField(screen, "settingsCategory", SettingsCategory.AUDIO)
+        ReflectionHelpers.callInstanceMethod<Unit>(screen, "render")
+        val back = descendants(screen.window.decorView).single {
+            it.contentDescription == screen.getString(R.string.back)
+        }
+        val density = screen.resources.displayMetrics.density
+        val layout = back.layoutParams as LinearLayout.LayoutParams
+
+        assertEquals(Math.round(64 * density), layout.width)
+        assertEquals(Math.round(56 * density), layout.height)
+        assertTrue(back.isClickable)
+        back.performClick()
+
+        assertEquals(SettingsCategory.OVERVIEW, ReflectionHelpers.getField(screen, "settingsCategory"))
+    }
+
     @Test
     @Config(sdk = [29], qualifiers = "en-w1024dp-h600dp-land")
     fun expandedSettingsUseTheRailInsteadOfRepeatingTheCategoryHeading() {
