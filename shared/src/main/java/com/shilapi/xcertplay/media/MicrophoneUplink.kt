@@ -38,6 +38,7 @@ internal class MicrophoneUplink(
     },
 ) : Closeable {
     private val running = AtomicBoolean(false)
+    private val closed = AtomicBoolean(false)
     private val stats = MicrophoneCaptureStats(config, report = { message ->
         Log.i(TAG, message)
         onDiagnostic(message)
@@ -59,6 +60,10 @@ internal class MicrophoneUplink(
 
     fun start(): Boolean {
         val startedNs = System.nanoTime()
+        if (closed.get()) {
+            trace("start-cancelled", startedNs, "reason=already-closed")
+            return false
+        }
         if (!running.compareAndSet(false, true)) {
             trace("already-running", startedNs)
             return true
@@ -148,19 +153,49 @@ internal class MicrophoneUplink(
         }
         trace("socket-end", startedNs)
 
-        recorder = nextRecorder
-        socket = nextSocket
-        opusEncoder = nextEncoder
+        val published = synchronized(this) {
+            if (closed.get() || !running.get()) false else {
+                recorder = nextRecorder
+                socket = nextSocket
+                opusEncoder = nextEncoder
+                true
+            }
+        }
+        if (!published) {
+            runCatching { nextSocket.close() }
+            runCatching { nextRecorder.release() }
+            nextEncoder?.close()
+            trace("start-cancelled", startedNs, "reason=closed-before-publish")
+            return false
+        }
         return try {
             if (config.audioType == "telephony") {
                 trace("effects-begin", startedNs)
-                echoCanceller = createEchoCanceller()
-                effects = voiceEffects(nextRecorder.audioSessionId)
+                val nextEchoCanceller = createEchoCanceller()
+                val nextEffects = voiceEffects(nextRecorder.audioSessionId)
+                val effectsPublished = synchronized(this) {
+                    if (closed.get() || !running.get() || recorder !== nextRecorder) false else {
+                        echoCanceller = nextEchoCanceller
+                        effects = nextEffects
+                        true
+                    }
+                }
+                if (!effectsPublished) {
+                    nextEffects.forEach(::releaseEffect)
+                    nextEchoCanceller?.close()
+                    trace("start-cancelled", startedNs, "reason=closed-during-effects")
+                    return false
+                }
                 trace("effects-end", startedNs,
                     "effectCount=${effects.size} nativeEcho=${echoCanceller != null}")
                 if (echoReference != null) {
                     Log.i(TAG, "microphone echo canceller enabled=${echoCanceller != null} tail=${ECHO_TAIL_MILLIS}ms")
                 }
+            }
+            if (closed.get() || !running.get()) {
+                trace("start-cancelled", startedNs, "reason=closed-before-recording")
+                release()
+                return false
             }
             trace("recording-begin", startedNs,
                 "state=${nextRecorder.state} recordingState=${nextRecorder.recordingState}")
@@ -474,6 +509,7 @@ internal class MicrophoneUplink(
     }
 
     override fun close() {
+        closed.set(true)
         if (!running.compareAndSet(true, false)) {
             release()
             return

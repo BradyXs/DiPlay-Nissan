@@ -173,6 +173,7 @@ class CarPlayController(
     private val vehicleStatusProvider: com.shilapi.xcertplay.transport.VehicleStatusProvider? = null,
     private val nissanAndroid44Profile: Boolean = false,
     private val nissanCarPlayAudioMode: Boolean = false,
+    private val onCallMediaActiveChanged: (Boolean) -> Unit = {},
     private val onNavigationUpdate: () -> Unit = {},
     private val onAirPlayDucking: (Boolean) -> Unit = {},
 ) : Closeable {
@@ -693,12 +694,19 @@ class CarPlayController(
                     val current = callState.current()
                     if (previous != null && current == null) lastCallEndedAtMs = SystemClock.elapsedRealtime()
                     else if (current != null) lastCallEndedAtMs = 0L
-                    Triple(status, current?.phase, callState.count())
+                    Pair(Triple(status, current?.phase, callState.count()), previous != current)
                 }
             }
             if (update != null) {
-                debugLog("iAP2 call state status=${update.first} phase=${update.second ?: "ENDED"} count=${update.third}")
-                if (update.second == CarPlayCallPhase.RINGING) {
+                val (state, changed) = update
+                debugLog("iAP2 call state status=${state.first} phase=${state.second ?: "ENDED"} count=${state.third}")
+                if (changed && nissanCarPlayAudioMode) {
+                    onCallMediaActiveChanged(state.second != null)
+                    if (state.second != null) {
+                        debugLog("Call media: pause on phase=${state.second} queued=${sendMediaButton(com.shilapi.xcertplay.airplay.CarPlayMediaButton.PAUSE)}")
+                    }
+                }
+                if (state.second == CarPlayCallPhase.RINGING) {
                     activeSession?.let { diagnoseNissanPhoneIdentity(it, "call-ringing") }
                 }
             } else {
@@ -711,6 +719,9 @@ class CarPlayController(
         }?.let { (update, playingChanged) ->
             nowPlayingListener?.invoke(update)
             if (playingChanged) playbackListener?.invoke(update.playing)
+            if (playingChanged && update.playing && nissanCarPlayAudioMode && currentCallSnapshot() != null) {
+                debugLog("Call media: pause on playback restart queued=${sendMediaButton(com.shilapi.xcertplay.airplay.CarPlayMediaButton.PAUSE)}")
+            }
         }
     }
 

@@ -19,14 +19,24 @@ internal class NissanVoiceWakeCoordinator(
 ) : Closeable {
     @Volatile private var connection: ServiceConnection? = null
     @Volatile private var binder: IBinder? = null
+    private val firmwareBridge = NissanFirmwareBridgeClient(context, report)
+    private var firmwareLease = false
     private var restoreWake = false
     private var restoreGeneration = 0
 
     @Synchronized fun pauseForMicrophone(): Boolean {
-        // A previous capture's asynchronous wake restart may still own this binding.
-        // Re-query the OEM service for every capture rather than assuming it remains paused.
         restoreGeneration++
         if (connection != null) releaseBinding()
+        when (firmwareBridge.acquireVoice()) {
+            NissanFirmwareBridgeClient.Result.ACQUIRED -> {
+                firmwareLease = true
+                return true
+            }
+            NissanFirmwareBridgeClient.Result.FAILED -> return false
+            NissanFirmwareBridgeClient.Result.UNAVAILABLE -> Unit
+        }
+        // A previous capture's asynchronous wake restart may still own this binding.
+        // Re-query the OEM service for every capture rather than assuming it remains paused.
         val ready = CountDownLatch(1)
         val serviceConnection = object : ServiceConnection {
             override fun onServiceConnected(name: ComponentName, service: IBinder) {
@@ -101,6 +111,11 @@ internal class NissanVoiceWakeCoordinator(
     }
 
     @Synchronized fun restoreAfterMicrophone() {
+        if (firmwareLease) {
+            firmwareLease = false
+            firmwareBridge.releaseVoice()
+            return
+        }
         val service = binder
         if (service != null && restoreWake) {
             try {

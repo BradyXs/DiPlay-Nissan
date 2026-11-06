@@ -255,6 +255,14 @@ class AndroidMediaSink(
      */
     private val videoPacingDelayMillis: Int = 0,
 ) : MediaSink {
+    @Volatile private var mediaSuppressedForCall = false
+
+    fun setMediaSuppressedForCall(active: Boolean) {
+        if (mediaSuppressedForCall == active) return
+        mediaSuppressedForCall = active
+        runCatching { onAudioDiagnostic("Audio: call media suppression active=$active") }
+    }
+
     private val relativeVolumes = CarPlayRelativeVolumes(mediaVolumePercent, navigationVolumePercent, callVolumePercent)
     private val navigationDuckHandler = if (duckMediaDuringNavigation) Handler(Looper.getMainLooper()) else null
     private val guidanceAudio = NissanGuidanceAudio()
@@ -353,6 +361,8 @@ class AndroidMediaSink(
     private val activeCarPlayAudioChannels = ConcurrentHashMap<AudioStreamId, AudioChannel>()
     private val audioRenderers = ConcurrentHashMap<AudioStreamId, AudioRenderer>()
     private val microphoneUplinks = ConcurrentHashMap<AudioStreamId, MicrophoneUplink>()
+    private class MicrophoneStartState { var cancelled = false; var started = false }
+    private val microphoneStarts = ConcurrentHashMap<AudioStreamId, MicrophoneStartState>()
     private val coordinatedMicrophones = mutableSetOf<AudioStreamId>()
     private val voiceCoordinationLock = Any()
     private val voiceRestoreExecutor = Executors.newSingleThreadScheduledExecutor { task ->
@@ -697,6 +707,7 @@ class AndroidMediaSink(
     }
 
     override fun onAudioRtp(id: AudioStreamId, format: AudioFormat, rtp: ByteArray, sample: Int) {
+        if (mediaSuppressedForCall && format.audioType == "media") return
         audioRenderer(id, format).submit(rtp, sample)
     }
 
@@ -754,32 +765,54 @@ class AndroidMediaSink(
         if (before != after) onMediaAudioChanged(after)
     }
 
+    override fun onMicrophonePrepared(id: AudioStreamId) {
+        if (!audioClosed) microphoneStarts.putIfAbsent(id, MicrophoneStartState())
+    }
+
     override fun onMicrophoneStarted(id: AudioStreamId, config: MicrophoneConfig) {
-        // This callback runs on the downlink thread; microphone failures must not stop playback.
-        if (nissanMicrophoneCoordination &&
-            (config.audioType == TELEPHONY_AUDIO_TYPE || config.audioType == "speechrecognition" ||
-                config.audioType == "default" || config.audioType == "compatibility")) {
-            if (!claimNissanMicrophone(id, config.audioType)) {
-                onAudioDiagnostic("Audio: Nissan microphone unavailable; voice coordination failed " +
-                    "type=${config.audioType} stream=$id")
-                return
-            }
+        // Stop may arrive while the OEM wake service is still pausing its recorder.
+        // The engine prepares first so a stop can cancel an in-flight start. Keep direct
+        // sink callers working as well; older integrations invoke start without prepare.
+        val state = microphoneStarts[id] ?: MicrophoneStartState().let {
+            microphoneStarts.putIfAbsent(id, it) ?: it
+        }
+        synchronized(state) {
+            if (state.cancelled || state.started || audioClosed) return
+            state.started = true
         }
         try {
-            if (config.audioType == "telephony") {
-                if (keepLegacyNissanAudioMode) {
-                    onAudioDiagnostic("Audio: Nissan call keeping current audio mode stream=$id")
-                } else {
-                    enterCommunicationMode(id)
+            if (nissanMicrophoneCoordination &&
+                (config.audioType == TELEPHONY_AUDIO_TYPE || config.audioType == "speechrecognition" ||
+                    config.audioType == "default" || config.audioType == "compatibility")) {
+                if (!claimNissanMicrophone(id, config.audioType)) {
+                    onAudioDiagnostic("Audio: Nissan microphone unavailable; voice coordination failed " +
+                        "type=${config.audioType} stream=$id")
+                    return
                 }
             }
-            val uplink = microphoneUplinks[id] ?: run {
-                val candidate = MicrophoneUplink(config, onAudioDiagnostic,
-                    if (config.audioType == TELEPHONY_AUDIO_TYPE) callEchoReferences[id.copy(microphoneGeneration = 0)] else null)
-                microphoneUplinks.putIfAbsent(id, candidate) ?: candidate
+            val uplink = synchronized(state) {
+                if (state.cancelled || audioClosed) null else {
+                    if (config.audioType == "telephony") {
+                        if (keepLegacyNissanAudioMode) {
+                            onAudioDiagnostic("Audio: Nissan call keeping current audio mode stream=$id")
+                        } else {
+                            enterCommunicationMode(id)
+                        }
+                    }
+                    MicrophoneUplink(config, onAudioDiagnostic,
+                        if (config.audioType == TELEPHONY_AUDIO_TYPE) callEchoReferences[id.copy(microphoneGeneration = 0)] else null)
+                        .also { microphoneUplinks[id] = it }
+                }
+            }
+            if (uplink == null) {
+                onAudioDiagnostic("Microphone: start cancelled before recorder creation stream=$id")
+                restoreAudioMode(id)
+                releaseNissanMicrophone(id)
+                return
             }
             if (!uplink.start()) {
                 microphoneUplinks.remove(id, uplink)
+                uplink.close()
                 restoreAudioMode(id)
                 releaseNissanMicrophone(id)
             }
@@ -791,8 +824,13 @@ class AndroidMediaSink(
     }
 
     override fun onMicrophoneStopped(id: AudioStreamId) {
+        val state = microphoneStarts.remove(id)
+        val uplink = if (state != null) synchronized(state) {
+            state.cancelled = true
+            microphoneUplinks.remove(id)
+        } else microphoneUplinks.remove(id)
         try {
-            microphoneUplinks.remove(id)?.close()
+            uplink?.close()
         } finally {
             restoreAudioMode(id)
             releaseNissanMicrophone(id)
@@ -877,6 +915,7 @@ class AndroidMediaSink(
 
     fun close() {
         audioClosed = true
+        microphoneStarts.keys.toList().forEach(::onMicrophoneStopped)
         navigationDuckHandler?.removeCallbacks(releaseNavigationDuck)
         synchronized(videoOwnershipLock) {
             videoClosed = true

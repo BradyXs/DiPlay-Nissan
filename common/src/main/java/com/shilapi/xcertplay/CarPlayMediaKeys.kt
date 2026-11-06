@@ -135,7 +135,7 @@ internal object CarPlayMediaKeys {
     private fun onIphonePlaying(expected: CarPlayController, playing: Boolean) {
         if (playing) mainHandler.post {
             synchronized(this) {
-                if (controller === expected) regainFocusLocked()
+                if (controller === expected && expected.currentCallSnapshot() == null) regainFocusLocked()
             }
         }
     }

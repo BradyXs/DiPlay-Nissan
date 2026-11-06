@@ -32,6 +32,7 @@ interface MediaSink {
     fun onAudioStarted(id: AudioStreamId, format: AudioFormat, firstSample: Int) {}
     fun onAudioRtp(id: AudioStreamId, format: AudioFormat, rtp: ByteArray, sample: Int) {}
     fun onAudioStopped(id: AudioStreamId) {}
+    fun onMicrophonePrepared(id: AudioStreamId) {}
     fun onMicrophoneStarted(id: AudioStreamId, config: MicrophoneConfig) {}
     fun onMicrophoneStopped(id: AudioStreamId) {}
     fun onIapMessage(bytes: ByteArray) {}
@@ -192,7 +193,10 @@ class CarPlayMediaEngine(
         val pendingMic = microphone?.let {
             PendingMicrophone(streamId.copy(microphoneGeneration = nextMicrophoneGeneration.incrementAndGet()), it)
         }
-        if (pendingMic != null) pendingMicrophone[streamKey] = pendingMic
+        if (pendingMic != null) {
+            sink.onMicrophonePrepared(pendingMic.id)
+            pendingMicrophone[streamKey] = pendingMic
+        }
         if (microphone != null) {
             val peer = when (val address = microphone.host) {
                 is Inet6Address -> "family=IPv6 linkLocal=${address.isLinkLocalAddress} scopeId=${address.scopeId}"
@@ -227,8 +231,17 @@ class CarPlayMediaEngine(
                     }
                     sink.onAudioStarted(streamId, format, firstSample)
                     if (audioType != "telephony" && pendingMic != null && pendingMicrophone[streamKey] === pendingMic) {
-                        sink.onMicrophoneStarted(pendingMic.id, pendingMic.config)
-                        if (pendingMicrophone[streamKey] !== pendingMic) sink.onMicrophoneStopped(pendingMic.id)
+                        // OEM wake coordination and AudioRecord startup can block for seconds.
+                        // Keep the downlink receiver available for Siri audio and teardown.
+                        Thread({
+                            if (streams[streamKey] !== audio || pendingMicrophone[streamKey] !== pendingMic) return@Thread
+                            session.logDebug("AirPlay microphone start begin type=$audioType id=${pendingMic.id.microphoneGeneration}")
+                            sink.onMicrophoneStarted(pendingMic.id, pendingMic.config)
+                            session.logDebug("AirPlay microphone start returned type=$audioType id=${pendingMic.id.microphoneGeneration}")
+                            if (streams[streamKey] !== audio || pendingMicrophone[streamKey] !== pendingMic) {
+                                sink.onMicrophoneStopped(pendingMic.id)
+                            }
+                        }, "carplay-mic-start").apply { isDaemon = true; start() }
                     }
                 }
 
@@ -520,7 +533,9 @@ class CarPlayMediaEngine(
             .forEach { sink.onScreenStreamActive(it.type, false) }
         sessionStreams.forEach { streams.remove(it)?.close() }
         audioMeta.clear()
-        pendingMicrophone.clear()
+        pendingMicrophone.entries.toList().filter { it.key.session === session }.forEach { (key, mic) ->
+            if (pendingMicrophone.remove(key, mic)) sink.onMicrophoneStopped(mic.id)
+        }
         audioCaptures.values.forEach(AudioPacketCapture::close)
         audioCaptures.clear()
     }
