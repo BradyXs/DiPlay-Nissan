@@ -2,6 +2,18 @@
 
 DiPlay-Nissan 基于 [DiPlay](https://github.com/shihabal3amri/DiPlay) 和 [DiPlay-Legacy-Android](https://github.com/programmerguohuajing/DiPlay-Legacy-Android)，专门为**日产 Android 4.4.3 车机**定制开发。当前主要适配 **2019 款日产逍客的 ARMv7 车机**，支持无线及 USB CarPlay 连接、本机音视频播放、方向盘媒体按键和诊断日志导出。CarPlay 导航、媒体和通话音量可分别调节；导航与媒体可分别选择车机音频通道，通话音频固定使用 Android 通话流 `0`。其他车机的兼容性尚未验证。
 
+## 界面预览
+
+以下预览展示设置总览、音频控制，以及无线和 USB CarPlay 的连接步骤。
+
+| 设置总览 | 音频设置 |
+|:---:|:---:|
+| ![DiPlay 设置总览](docs/images/ui-preview/settings-overview.png) | ![DiPlay 音频设置](docs/images/ui-preview/audio-settings.png) |
+
+| 无线连接 | USB 连接 |
+|:---:|:---:|
+| ![无线 CarPlay 连接步骤](docs/images/ui-preview/wireless-connection.png) | ![USB CarPlay 连接步骤](docs/images/ui-preview/usb-connection.png) |
+
 项目名称为 DiPlay-Nissan；车机中显示的应用名称及发布的 APK 文件名使用 **DiPlay**。Android 包名保持不变，以支持覆盖安装。
 
 ## 版本与下载
