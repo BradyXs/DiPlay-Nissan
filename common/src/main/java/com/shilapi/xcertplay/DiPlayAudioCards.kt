@@ -78,13 +78,12 @@ internal class DiPlayAudioCards(
             save(percent)
             log("Audio volume: $title percent=$percent active=${CarPlayBackgroundSession.active}")
         }
-        index(title)
         val header = row().apply { gravity = Gravity.CENTER_VERTICAL }
         header.addView(label(title, 18, DiPlayCardUi.TEXT), LinearLayout.LayoutParams(0, -2, 1f))
         val value = label("${initial.coerceIn(0, 100)}%", 18, DiPlayCardUi.ACCENT)
         header.addView(value)
         parent.addView(header)
-        val slider = SeekBar(activity).apply {
+        val slider = CarPlayProgressStyle.seekBar(activity).apply {
             max = 100
             progress = initial.coerceIn(0, 100)
             contentDescription = title
@@ -138,7 +137,6 @@ internal class DiPlayAudioCards(
         readAsync: (((Int?, String?) -> Unit) -> Unit),
         setAsync: ((Int, (Int?, String?) -> Unit) -> Unit)) = with(ui) {
         val title = activity.getString(titleId)
-        index(title)
         val header = row().apply { gravity = Gravity.CENTER_VERTICAL }
         header.addView(label(title, 18, DiPlayCardUi.TEXT), LinearLayout.LayoutParams(0, -2, 1f))
         val value = label(activity.getString(R.string.settings_nissan_navigation_hardware_volume_loading),
@@ -146,9 +144,10 @@ internal class DiPlayAudioCards(
         header.addView(value)
         parent.addView(header)
         var revision = 0
-        val slider = SeekBar(activity).apply {
+        val slider = CarPlayProgressStyle.seekBar(activity).apply {
             max = maxLevel
             isEnabled = false
+            alpha = 0.45f
             isFocusableInTouchMode = true
             contentDescription = title
         }
@@ -202,6 +201,7 @@ internal class DiPlayAudioCards(
                     slider.progress = current.coerceIn(0, maxLevel)
                     value.text = "${slider.progress}/$maxLevel"
                     slider.isEnabled = true
+                    slider.alpha = 1f
                 }
             }
         }

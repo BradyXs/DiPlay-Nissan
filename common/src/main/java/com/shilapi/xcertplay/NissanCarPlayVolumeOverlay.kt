@@ -2,9 +2,7 @@ package com.shilapi.xcertplay
 
 import android.content.Context
 import android.graphics.Color
-import android.graphics.drawable.ClipDrawable
 import android.graphics.drawable.GradientDrawable
-import android.graphics.drawable.LayerDrawable
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
@@ -16,6 +14,7 @@ import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
+import androidx.appcompat.content.res.AppCompatResources
 import com.shilapi.xcertplay.host.R
 import java.lang.ref.WeakReference
 
@@ -23,6 +22,8 @@ import java.lang.ref.WeakReference
 internal object NissanCarPlayVolumeOverlay {
     private data class Content(
         val view: LinearLayout,
+        val width: Int,
+        val icon: ImageView,
         val title: TextView,
         val value: TextView,
         val progress: ProgressBar,
@@ -67,7 +68,7 @@ internal object NissanCarPlayVolumeOverlay {
                     main.removeCallbacks(hideHost)
                     if (content.view.parent == null) {
                         container.addView(content.view, FrameLayout.LayoutParams(
-                            ViewGroup.LayoutParams.WRAP_CONTENT,
+                            content.width,
                             ViewGroup.LayoutParams.WRAP_CONTENT,
                             Gravity.TOP or Gravity.CENTER_HORIZONTAL,
                         ).apply { topMargin = dp(container.context, 6) })
@@ -96,12 +97,16 @@ internal object NissanCarPlayVolumeOverlay {
     }
 
     private fun update(content: Content, context: Context, target: NissanSeekAudioRouting.Target, percent: Int) {
+        content.icon.setImageDrawable(AppCompatResources.getDrawable(context,
+            if (target == NissanSeekAudioRouting.Target.CALL) R.drawable.ic_dp_call
+            else R.drawable.ic_dp_navigation))
         content.title.text = context.getString(
             if (target == NissanSeekAudioRouting.Target.CALL) R.string.settings_carplay_call_volume
             else R.string.settings_carplay_navigation_volume,
         )
         content.value.text = "${percent.coerceIn(0, 100)}%"
         content.progress.progress = percent.coerceIn(0, 100)
+        content.view.contentDescription = "${content.title.text}, ${content.value.text}"
     }
 
     private fun dp(context: Context, value: Int) =
@@ -109,53 +114,44 @@ internal object NissanCarPlayVolumeOverlay {
 
     private fun createContent(context: Context): Content {
         fun dp(value: Int) = dp(context, value)
-        val width = (context.resources.displayMetrics.widthPixels * 0.56f).toInt()
-            .coerceAtLeast(dp(320)).coerceAtMost(dp(720))
+        val screenWidth = context.resources.displayMetrics.widthPixels
+        val width = (screenWidth * 0.56f).toInt().coerceIn(dp(320), dp(720))
+            .coerceAtMost((screenWidth - dp(24)).coerceAtLeast(dp(240)))
         val view = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
+            orientation = LinearLayout.VERTICAL
             minimumWidth = width
-            minimumHeight = dp(56)
-            setPadding(dp(18), dp(14), dp(18), dp(14))
+            layoutParams = ViewGroup.LayoutParams(width, ViewGroup.LayoutParams.WRAP_CONTENT)
+            minimumHeight = dp(72)
+            setPadding(dp(16), dp(12), dp(16), dp(14))
             background = GradientDrawable().apply {
-                setColor(Color.argb(226, 28, 35, 46))
+                setColor(Color.argb(234, 49, 53, 61))
                 cornerRadius = dp(14).toFloat()
+                setStroke(dp(1), DiPlayCardUi.BORDER)
             }
         }
-        view.addView(ImageView(context).apply {
-            setImageResource(android.R.drawable.ic_lock_silent_mode_off)
+        val header = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        val icon = ImageView(context).apply {
             setColorFilter(Color.WHITE)
-        }, LinearLayout.LayoutParams(dp(25), dp(25)).apply { rightMargin = dp(12) })
+            importantForAccessibility = android.view.View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        }.also { header.addView(it, LinearLayout.LayoutParams(dp(24), dp(24)).apply { rightMargin = dp(10) }) }
         val title = TextView(context).apply {
             setTextColor(Color.WHITE)
             textSize = 16f
             isSingleLine = true
-        }.also { view.addView(it, LinearLayout.LayoutParams(-2, -2).apply { rightMargin = dp(14) }) }
-        val progress = ProgressBar(context, null, android.R.attr.progressBarStyleHorizontal).apply {
-            max = 100
-            isIndeterminate = false
-            val background = GradientDrawable().apply {
-                setColor(Color.argb(210, 226, 232, 239))
-                cornerRadius = dp(5).toFloat()
-            }
-            val filled = GradientDrawable().apply {
-                setColor(Color.rgb(255, 207, 76))
-                cornerRadius = dp(5).toFloat()
-            }
-            progressDrawable = LayerDrawable(arrayOf(
-                background,
-                ClipDrawable(filled, Gravity.LEFT, ClipDrawable.HORIZONTAL),
-            )).apply {
-                setId(0, android.R.id.background)
-                setId(1, android.R.id.progress)
-            }
-        }.also { view.addView(it, LinearLayout.LayoutParams(0, dp(12), 1f).apply { rightMargin = dp(14) }) }
+        }.also { header.addView(it, LinearLayout.LayoutParams(0, -2, 1f)) }
         val value = TextView(context).apply {
             setTextColor(Color.WHITE)
             textSize = 18f
             gravity = Gravity.END
             minWidth = dp(54)
-        }.also { view.addView(it) }
-        return Content(view, title, value, progress)
+        }.also { header.addView(it) }
+        view.addView(header, LinearLayout.LayoutParams(-1, -2))
+        val progress = CarPlayProgressStyle.progressBar(context).apply {
+            max = 100
+        }.also { view.addView(it, LinearLayout.LayoutParams(-1, dp(10)).apply { topMargin = dp(10) }) }
+        return Content(view, width, icon, title, value, progress)
     }
 }

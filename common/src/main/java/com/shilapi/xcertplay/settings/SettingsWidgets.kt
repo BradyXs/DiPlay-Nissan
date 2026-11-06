@@ -4,6 +4,8 @@ import android.content.Context
 import android.content.res.ColorStateList
 import android.graphics.Color
 import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.StateListDrawable
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -14,6 +16,7 @@ import android.widget.SeekBar
 import android.widget.Switch
 import android.widget.TextView
 import com.shilapi.xcertplay.airplay.CarPlayDisplayScale
+import com.shilapi.xcertplay.CarPlayProgressStyle
 import com.shilapi.xcertplay.host.R
 
 object SettingsWidgets {
@@ -75,10 +78,11 @@ object SettingsWidgets {
             isChecked = checked
             this.contentDescription = contentDescription
             isEnabled = enabled
+            textOn = ""
+            textOff = ""
+            // setShowText was added after Android 4.4. Empty labels already hide text on API 19.
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
                 showText = false
-                textOn = ""
-                textOff = ""
             }
             if (theme.isOverlay) {
                 if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
@@ -92,9 +96,22 @@ object SettingsWidgets {
                     )
                 }
             } else {
-                minHeight = theme.dp(context, 56)
-                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
-                    buttonTintList = ColorStateList.valueOf(theme.accent)
+                switchMinWidth = theme.dp(context, 50)
+                switchPadding = 0
+                thumbTextPadding = 0
+                minWidth = theme.dp(context, 50)
+                minHeight = theme.dp(context, 36)
+                // Android 4.4 does not tint the platform Switch. Draw both states here so
+                // the Nissan unit shows the same clear green/grey control as newer Android.
+                thumbDrawable = StateListDrawable().apply {
+                    addState(intArrayOf(-android.R.attr.state_enabled), switchThumb(context, theme, false))
+                    addState(intArrayOf(android.R.attr.state_checked), switchThumb(context, theme, true))
+                    addState(intArrayOf(), switchThumb(context, theme, false))
+                }
+                trackDrawable = StateListDrawable().apply {
+                    addState(intArrayOf(-android.R.attr.state_enabled), switchTrack(context, theme, false))
+                    addState(intArrayOf(android.R.attr.state_checked), switchTrack(context, theme, true))
+                    addState(intArrayOf(), switchTrack(context, theme, false))
                 }
             }
             setOnCheckedChangeListener { _, isChecked -> onChanged(isChecked) }
@@ -130,7 +147,7 @@ object SettingsWidgets {
             textCol.addView(labelView)
             textCol.addView(descView)
             row.addView(textCol, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-            row.addView(switch)
+            row.addView(switch, LinearLayout.LayoutParams(theme.dp(context, 54), theme.dp(context, 36)))
             // The whole row is the target; the switch stays out of the focus order so D-pad stops once.
             switch.isFocusable = false
             row.isFocusable = true
@@ -177,6 +194,21 @@ object SettingsWidgets {
 
     private const val COLLAPSED_DESCRIPTION_LINES = 2
     private const val ROW_RIPPLE = 0x336F9FD9
+
+    private fun switchThumb(context: Context, theme: SettingsTheme, enabled: Boolean) =
+        GradientDrawable().apply {
+            shape = GradientDrawable.OVAL
+            setColor(Color.WHITE)
+            setSize(theme.dp(context, 24), theme.dp(context, 24))
+            if (!enabled) setStroke(theme.dp(context, 1), Color.rgb(215, 218, 223))
+        }
+
+    private fun switchTrack(context: Context, theme: SettingsTheme, enabled: Boolean) =
+        GradientDrawable().apply {
+            setColor(if (enabled) theme.accentTrack else theme.trackOff)
+            cornerRadius = theme.dp(context, 17).toFloat()
+            setSize(theme.dp(context, 50), theme.dp(context, 30))
+        }
 
     fun <T> createChoiceRow(
         context: Context,
@@ -293,10 +325,10 @@ object SettingsWidgets {
             ).apply { topMargin = theme.dp(context, 14) },
         )
 
-        val seekBar = SeekBar(context).apply {
+        val seekBar = (if (theme == SettingsTheme.CARD) CarPlayProgressStyle.seekBar(context) else SeekBar(context)).apply {
             max = CarPlayDisplayScale.MAX_PERCENT - CarPlayDisplayScale.MIN_PERCENT
             progress = initial - CarPlayDisplayScale.MIN_PERCENT
-            if (android.os.Build.VERSION.SDK_INT >= 21) {
+            if (theme != SettingsTheme.CARD && android.os.Build.VERSION.SDK_INT >= 21) {
                 splitTrack = false
                 progressTintList = ColorStateList.valueOf(theme.accent)
                 thumbTintList = ColorStateList.valueOf(theme.accent)

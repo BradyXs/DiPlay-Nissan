@@ -35,6 +35,7 @@ import android.widget.*
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.content.res.AppCompatResources
 import androidx.core.view.doOnLayout
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -155,7 +156,6 @@ class DiPlayActivity : ComponentActivity() {
     private var settingsRailScroll: ScrollView? = null
     private var reconnectBar: View? = null
     private var readinessCard: LinearLayout? = null
-    private var searchIndexSink: MutableList<String>? = null
     private var renderedReadiness: SettingsReadiness? = null
     private var renderedPage: String? = null
     private var renderedSettingsCategory: SettingsCategory? = null
@@ -611,7 +611,18 @@ class DiPlayActivity : ComponentActivity() {
         exportButton = null
         nissanBluetoothStatusButton = null
         val compact = isCompactLayout
-        val scroll = ScrollView(this).apply { setBackgroundColor(BG); isFillViewport = true; clipToPadding = false }
+        val scroll = ScrollView(this).apply {
+            if (page == "home" && nissanAndroid44Profile) {
+                background = GradientDrawable().apply {
+                    gradientType = GradientDrawable.RADIAL_GRADIENT
+                    colors = intArrayOf(Color.rgb(13, 40, 71), Color.rgb(5, 16, 30), Color.rgb(2, 7, 14))
+                    setGradientCenter(.5f, .3f)
+                    gradientRadius = resources.displayMetrics.widthPixels * .7f
+                }
+            } else setBackgroundColor(BG)
+            isFillViewport = true
+            clipToPadding = false
+        }
         rootScroll = scroll
         val content = column()
         scroll.addView(content)
@@ -696,6 +707,38 @@ class DiPlayActivity : ComponentActivity() {
 
     private fun standardHeader(compact: Boolean): LinearLayout = row().apply {
         gravity = Gravity.CENTER_VERTICAL
+        if (page == "home" && nissanAndroid44Profile) {
+            fun Button.centerHomePill() {
+                textSize = 15f
+                minWidth = 0
+                minHeight = 0
+                includeFontPadding = false
+                setPadding(0, 0, 0, 0)
+                gravity = Gravity.CENTER
+                textAlignment = View.TEXT_ALIGNMENT_CENTER
+                background = GradientDrawable().apply {
+                    setColor(Color.argb(22, 255, 255, 255))
+                    cornerRadius = dp(24).toFloat()
+                    setStroke(dp(1), Color.argb(31, 255, 255, 255))
+                }
+            }
+            val pillWidth = dp(if (compact) 98 else 120)
+            addView(button(getString(R.string.settings), false) {
+                page = "settings"; render()
+            }.apply { centerHomePill() }, LinearLayout.LayoutParams(pillWidth, dp(48)))
+            addView(TextClock(this@DiPlayActivity).apply {
+                format24Hour = "HH:mm"
+                format12Hour = "h:mm"
+                gravity = Gravity.CENTER
+                textSize = if (compact) 20f else 24f
+                typeface = Typeface.create("sans-serif-light", Typeface.NORMAL)
+                setTextColor(TEXT)
+            }, LinearLayout.LayoutParams(0, dp(48), 1f))
+            addView(button(getString(R.string.car_home), false) {
+                startActivity(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME))
+            }.apply { centerHomePill() }, LinearLayout.LayoutParams(pillWidth, dp(48)))
+            return@apply
+        }
         addView(ImageView(this@DiPlayActivity).apply {
             setImageResource(R.drawable.ic_carplay)
             contentDescription = getString(R.string.carplay)
@@ -747,13 +790,24 @@ class DiPlayActivity : ComponentActivity() {
 
     private fun settingsHeader(compact: Boolean): LinearLayout = row().apply {
         gravity = Gravity.CENTER_VERTICAL
-        addView(button(getString(R.string.back), false, ::navigateBack),
-            LinearLayout.LayoutParams(if (compact) dp(78) else dp(112), if (compact) dp(44) else dp(52)))
-        addView(label(getString(R.string.settings), if (compact) 20 else 26, TEXT, true).apply {
-            setPadding(dp(12), 0, dp(12), 0)
-        }, LinearLayout.LayoutParams(0, if (compact) dp(44) else dp(52), 1f))
-        addView(button(getString(R.string.settings_search), false) { showSettingsSearch() },
-            LinearLayout.LayoutParams(if (compact) dp(92) else dp(140), if (compact) dp(44) else dp(52)))
+        addView(FrameLayout(this@DiPlayActivity).apply {
+            contentDescription = getString(R.string.back)
+            isClickable = true
+            isFocusable = true
+            background = compatibleRipple(ColorStateList.valueOf(RIPPLE),
+                rounded(Color.TRANSPARENT, Color.TRANSPARENT), null)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) foreground = focusRing(12)
+            addView(ImageView(this@DiPlayActivity).apply {
+                setImageDrawable(AppCompatResources.getDrawable(this@DiPlayActivity, R.drawable.ic_dp_chevron))
+                setColorFilter(TEXT)
+                rotation = 180f
+                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            }, FrameLayout.LayoutParams(dp(24), dp(24), Gravity.CENTER))
+            setOnClickListener { navigateBack() }
+        }, LinearLayout.LayoutParams(dp(48), dp(52)))
+        addView(label(getString(R.string.settings), if (compact) 22 else 27, TEXT, true).apply {
+            setPadding(dp(4), 0, dp(12), 0)
+        }, LinearLayout.LayoutParams(0, dp(52), 1f))
     }
 
     private fun home(content: LinearLayout) {
@@ -776,9 +830,9 @@ class DiPlayActivity : ComponentActivity() {
     // Only the category scrolls, so the rail keeps showing where the driver is.
     private fun expandedSettingsShell(header: View, categoryScroll: ScrollView): LinearLayout = column().apply {
         setBackgroundColor(BG)
-        setPadding(dp(32), dp(24), dp(32), 0)
+        setPadding(dp(24), dp(16), dp(24), 0)
         addView(header)
-        addView(space(24))
+        addView(space(18))
         addView(reconnectBar(), LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(SETTINGS_BLOCK_GAP_DP) })
         val split = row().apply { gravity = Gravity.TOP }
         // The rail scrolls on its own only when the window is too short for every destination.
@@ -787,17 +841,17 @@ class DiPlayActivity : ComponentActivity() {
             settingsRailScroll = this
         },
             LinearLayout.LayoutParams(dp(SettingsLayoutPolicy.railWidthDp(resources.configuration.fontScale)), -2))
-        split.addView(space(24), LinearLayout.LayoutParams(dp(24), 1))
+        split.addView(space(18), LinearLayout.LayoutParams(dp(18), 1))
         split.addView(categoryScroll, LinearLayout.LayoutParams(0, -1, 1f))
         addView(split, LinearLayout.LayoutParams(-1, 0, 1f))
     }
 
     private fun settingsRail(): LinearLayout = column().apply {
-        background = rounded(SURFACE, BORDER)
-        setPadding(dp(12), dp(12), dp(12), dp(12))
+        background = rounded(RAIL_SURFACE, RAIL_SURFACE)
+        setPadding(dp(8), dp(10), dp(8), dp(10))
         SettingsCategory.entries.forEach { category ->
             addView(settingsRailDestination(category), matchButton(0, 52).apply {
-                bottomMargin = dp(8)
+                bottomMargin = dp(2)
             })
         }
     }
@@ -817,24 +871,16 @@ class DiPlayActivity : ComponentActivity() {
                 GradientDrawable().apply {
                     setColor(if (selected) RAIL_SELECTED else Color.TRANSPARENT)
                     cornerRadius = dp(12).toFloat()
-                    if (selected) setStroke(dp(1), RAIL_SELECTED_BORDER)
                 },
                 null,
             )
-            setPadding(dp(8), 0, dp(12), 0)
-            addView(View(this@DiPlayActivity).apply {
-                background = GradientDrawable().apply {
-                    setColor(if (selected) ACCENT else Color.TRANSPARENT)
-                    cornerRadius = dp(2).toFloat()
-                }
-                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
-            }, LinearLayout.LayoutParams(dp(4), dp(34)).apply { marginEnd = dp(10) })
+            setPadding(dp(14), 0, dp(12), 0)
             addView(ImageView(this@DiPlayActivity).apply {
-                setImageResource(settingsCategoryIcon(category))
-                androidx.core.widget.ImageViewCompat.setImageTintList(this, ColorStateList.valueOf(if (selected) ACCENT else TEXT))
+                setImageDrawable(AppCompatResources.getDrawable(this@DiPlayActivity, settingsCategoryIcon(category)))
+                androidx.core.widget.ImageViewCompat.setImageTintList(this, ColorStateList.valueOf(TEXT))
                 importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
             }, LinearLayout.LayoutParams(dp(26), dp(26)).apply { marginEnd = dp(12) })
-            addView(label(title, 16, if (selected) ACCENT else TEXT, true),
+            addView(label(title, 17, TEXT, true),
                 LinearLayout.LayoutParams(0, -1, 1f))
             setOnClickListener {
                 selectSettingsCategory(category)
@@ -940,14 +986,15 @@ class DiPlayActivity : ComponentActivity() {
 
     private fun settingsOverview(content: LinearLayout) {
         val buildStartedAtNs = SystemClock.elapsedRealtimeNanos()
-        settingsPageTitle(content, getString(R.string.settings_overview), getString(R.string.settings_overview_subtitle))
+        if (!isExpandedSettingsLayout) {
+            settingsPageTitle(content, getString(R.string.settings_overview), getString(R.string.settings_overview_subtitle))
+        }
         val readiness = card().apply {
             setPadding(dp(20), dp(if (isExpandedSettingsLayout) 16 else 12), dp(20), dp(if (isExpandedSettingsLayout) 16 else 12))
         }
         readinessCard = readiness
         renderedReadiness = null
         refreshReadiness()
-        content.addView(readiness, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(20) })
         val readinessBuiltAtNs = SystemClock.elapsedRealtimeNanos()
 
         val destinations = listOf(
@@ -961,26 +1008,26 @@ class DiPlayActivity : ComponentActivity() {
             SettingsLayoutPolicy.overviewHasTwoColumns(it.screenWidthDp, it.fontScale)
         }
         if (twoColumns) {
+            val actionNeeded = currentReadiness().needsAction
+            if (actionNeeded) content.addView(readiness,
+                LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(18) })
             val columns = row().apply { gravity = Gravity.TOP }
             val setup = column()
             setup.addView(settingsSectionHeading(R.string.settings_your_setup))
-            destinations.forEach { item ->
-                setup.addView(settingsSummaryCard(item.first, getString(item.second)),
-                    LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(8) })
-            }
+            setup.addView(settingsSummaryGroup(destinations))
             columns.addView(setup, LinearLayout.LayoutParams(0, -2, 1f))
-            columns.addView(space(14), LinearLayout.LayoutParams(dp(14), 1))
+            columns.addView(space(16), LinearLayout.LayoutParams(dp(16), 1))
             val quick = column()
             quick.addView(settingsSectionHeading(R.string.settings_quick_settings))
             quick.addView(quickSettingsCard())
             columns.addView(quick, LinearLayout.LayoutParams(0, -2, 1f))
-            content.addView(columns, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(16) })
+            content.addView(columns, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(18) })
+            if (!actionNeeded) content.addView(readiness,
+                LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(18) })
         } else {
+            content.addView(readiness, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(18) })
             content.addView(settingsSectionHeading(R.string.settings_your_setup))
-            destinations.forEach { item ->
-                content.addView(settingsSummaryCard(item.first, getString(item.second)),
-                    LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(8) })
-            }
+            content.addView(settingsSummaryGroup(destinations))
             content.addView(settingsSectionHeading(R.string.settings_quick_settings).apply { setPadding(0, dp(10), 0, dp(8)) })
             content.addView(quickSettingsCard(), LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(18) })
         }
@@ -1087,7 +1134,7 @@ class DiPlayActivity : ComponentActivity() {
         }
         setPadding(dp(16), 0, dp(16), 0)
         addView(ImageView(this@DiPlayActivity).apply {
-            setImageResource(icon)
+            setImageDrawable(AppCompatResources.getDrawable(this@DiPlayActivity, icon))
             androidx.core.widget.ImageViewCompat.setImageTintList(this, ColorStateList.valueOf(tint))
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
         }, LinearLayout.LayoutParams(dp(28), dp(28)).apply { marginEnd = dp(14) })
@@ -1096,7 +1143,7 @@ class DiPlayActivity : ComponentActivity() {
             addView(label(description, 13, MUTED).apply { setPadding(0, dp(2), 0, 0) })
         }, LinearLayout.LayoutParams(0, -2, 1f))
         addView(ImageView(this@DiPlayActivity).apply {
-            setImageResource(R.drawable.ic_dp_chevron)
+            setImageDrawable(AppCompatResources.getDrawable(this@DiPlayActivity, R.drawable.ic_dp_chevron))
             androidx.core.widget.ImageViewCompat.setImageTintList(this, ColorStateList.valueOf(ACCENT))
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
         }, LinearLayout.LayoutParams(dp(22), dp(22)).apply { marginStart = dp(12) })
@@ -1123,26 +1170,53 @@ class DiPlayActivity : ComponentActivity() {
         Unit
     }
 
-    private fun settingsSectionHeading(title: Int) = label(getString(title), 22, TEXT, true).apply {
-        setPadding(0, 0, 0, dp(10))
+    private fun settingsSectionHeading(title: Int) = label(getString(title), 18, TEXT, true).apply {
+        setPadding(0, dp(4), 0, dp(10))
     }
 
-    private fun settingsSummaryCard(category: SettingsCategory, summary: String): LinearLayout = card().apply {
-        setPadding(dp(16), dp(10), dp(16), dp(10))
+    private fun settingsSummaryGroup(destinations: List<Pair<SettingsCategory, Int>>): LinearLayout = card().apply {
+        setPadding(0, 0, 0, 0)
+        destinations.forEachIndexed { index, (category, summary) ->
+            if (index > 0) addView(View(this@DiPlayActivity).apply {
+                setBackgroundColor(BORDER)
+            }, LinearLayout.LayoutParams(-1, dp(1)).apply {
+                marginStart = dp(16)
+                marginEnd = dp(16)
+            })
+            addView(settingsSummaryRow(category, getString(summary)), LinearLayout.LayoutParams(-1, dp(58)))
+        }
+    }
+
+    private fun settingsSummaryRow(category: SettingsCategory, summary: String): LinearLayout = row().apply {
+        gravity = Gravity.CENTER_VERTICAL
+        setPadding(dp(16), 0, dp(14), 0)
         isClickable = true
         isFocusable = true
+        background = compatibleRipple(ColorStateList.valueOf(RIPPLE),
+            android.graphics.drawable.ColorDrawable(Color.TRANSPARENT), null)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             foreground = android.graphics.drawable.LayerDrawable(arrayOf<android.graphics.drawable.Drawable>(
                 android.graphics.drawable.RippleDrawable(ColorStateList.valueOf(RIPPLE), null, null), focusRing(12)))
         }
-        contentDescription = getString(R.string.settings_open_category, settingsCategoryTitle(category))
-        addView(label(settingsCategoryTitle(category), 17, TEXT, true))
-        addView(label(summary, 13, MUTED).apply { setPadding(0, dp(3), 0, 0) })
+        contentDescription = "${getString(R.string.settings_open_category, settingsCategoryTitle(category))}. $summary"
+        addView(ImageView(this@DiPlayActivity).apply {
+            setImageDrawable(AppCompatResources.getDrawable(this@DiPlayActivity, settingsCategoryIcon(category)))
+            androidx.core.widget.ImageViewCompat.setImageTintList(this, ColorStateList.valueOf(TEXT))
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        }, LinearLayout.LayoutParams(dp(24), dp(24)).apply { marginEnd = dp(12) })
+        addView(label(settingsCategoryTitle(category), 17, TEXT, true), LinearLayout.LayoutParams(0, -1, 1f))
+        addView(ImageView(this@DiPlayActivity).apply {
+            setImageDrawable(AppCompatResources.getDrawable(this@DiPlayActivity, R.drawable.ic_dp_chevron))
+            androidx.core.widget.ImageViewCompat.setImageTintList(this, ColorStateList.valueOf(MUTED))
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        }, LinearLayout.LayoutParams(dp(20), dp(20)))
         setOnClickListener { selectSettingsCategory(category) }
     }
 
     private fun settingsPageTitle(content: LinearLayout, title: String, subtitle: String) {
-        content.addView(label(title, if (isExpandedSettingsLayout) 34 else 26, TEXT, true))
+        // The selected destination is already visible in the persistent left rail.
+        if (isExpandedSettingsLayout) return
+        content.addView(label(title, 26, TEXT, true))
         content.addView(label(subtitle, 16, MUTED).apply { setPadding(0, dp(6), 0, dp(20)) })
     }
 
@@ -1203,118 +1277,6 @@ class DiPlayActivity : ComponentActivity() {
     private fun diagnosticsSettings(content: LinearLayout) {
         settingsPageTitle(content, getString(R.string.diagnostics), getString(R.string.settings_diagnostics_summary))
         renderSections(content, SettingsInformationArchitecture.sectionsByCategory.getValue(SettingsCategory.DIAGNOSTICS))
-    }
-
-    internal data class SettingsSearchResult(val title: String, val category: SettingsCategory)
-
-    // Renders every category into a detached view and records what the builders label.
-    // Keep the visible widgets referenced while indexing; opening Search must not redraw the page.
-    // ponytail: indexes the default state only; controls behind an expander (vehicle data) are not found.
-    private fun buildSettingsSearchIndex(): List<SettingsSearchResult> {
-        val selected = settingsCategory
-        val previousSearchSink = searchIndexSink
-        val visibleReadinessCard = readinessCard
-        val visibleReadiness = renderedReadiness
-        val visibleCarButtonCard = carButtonCard
-        val visibleExportButton = exportButton
-        val visibleBluetoothButton = nissanBluetoothStatusButton
-        // Category names first, so a card that only links to a category cannot claim its name.
-        val index = SettingsCategory.entries.associateByTo(linkedMapOf(), ::settingsCategoryTitle)
-        try {
-            for (category in SettingsCategory.entries.filter { it != SettingsCategory.OVERVIEW } + SettingsCategory.OVERVIEW) {
-                settingsCategory = category
-                val titles = mutableListOf(settingsCategoryTitle(category))
-                searchIndexSink = titles
-                settingsCategoryContent(column())
-                titles.forEach { index.putIfAbsent(it, category) }
-            }
-        } finally {
-            searchIndexSink = previousSearchSink
-            settingsCategory = selected
-            readinessCard = visibleReadinessCard
-            renderedReadiness = visibleReadiness
-            carButtonCard = visibleCarButtonCard
-            exportButton = visibleExportButton
-            nissanBluetoothStatusButton = visibleBluetoothButton
-        }
-        return index.map { SettingsSearchResult(it.key, it.value) }
-    }
-
-    private fun searchSettings(index: List<SettingsSearchResult>, query: String): List<SettingsSearchResult> {
-        val words = query.trim().lowercase(Locale.getDefault()).split(Regex("\\s+")).filter(String::isNotEmpty)
-        if (words.isEmpty()) return emptyList()
-        return index.filter { result ->
-            val haystack = "${result.title} ${settingsCategoryTitle(result.category)}".lowercase(Locale.getDefault())
-            words.all(haystack::contains)
-        }
-    }
-
-    private fun openSearchResult(result: SettingsSearchResult) {
-        selectSettingsCategory(result.category)
-        val scroll = rootScroll ?: return
-        val match = descendants(scroll).filterIsInstance<TextView>().firstOrNull {
-            it.text.toString() == result.title || it.text.startsWith(result.title + VALUE_SEPARATOR)
-        } ?: return
-        val target = generateSequence<View>(match) { it.parent as? View }.firstOrNull { it.isClickable } ?: match
-        scroll.doOnLayout {
-            var top = 0
-            var view: View? = target
-            while (view != null && view !== scroll) { top += view.top; view = view.parent as? View }
-            scroll.smoothScrollTo(0, (top - dp(24)).coerceAtLeast(0))
-            target.requestFocus()
-            target.isPressed = true
-            handler.postDelayed({ target.isPressed = false }, SEARCH_HIGHLIGHT_MILLIS)
-        }
-    }
-
-    private fun descendants(view: View): Sequence<View> = sequence {
-        yield(view)
-        if (view is ViewGroup) for (i in 0 until view.childCount) yieldAll(descendants(view.getChildAt(i)))
-    }
-
-    private fun showSettingsSearch() {
-        val index = buildSettingsSearchIndex()
-        val input = EditText(this).apply {
-            setSingleLine()
-            hint = getString(R.string.settings_search_hint)
-            // Landscape head units would otherwise cover the results with a full-screen editor.
-            imeOptions = android.view.inputmethod.EditorInfo.IME_FLAG_NO_EXTRACT_UI or
-                android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH
-        }
-        val results = mutableListOf<SettingsSearchResult>()
-        val adapter = android.widget.ArrayAdapter<String>(this, android.R.layout.simple_list_item_1)
-        val list = android.widget.ListView(this).apply { this.adapter = adapter }
-        val empty = label(getString(R.string.settings_search_empty), 15, MUTED).apply {
-            setPadding(dp(8), dp(12), dp(8), dp(12)); visibility = View.GONE
-        }
-        fun update() {
-            results.clear(); results += searchSettings(index, input.text.toString())
-            adapter.clear()
-            adapter.addAll(results.map { "${it.title} — ${settingsCategoryTitle(it.category)}" })
-            empty.visibility = if (results.isEmpty() && input.text.isNotBlank()) View.VISIBLE else View.GONE
-        }
-        input.addTextChangedListener(object : android.text.TextWatcher {
-            override fun afterTextChanged(s: android.text.Editable?) = update()
-            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
-            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
-        })
-        val body = column().apply {
-            setPadding(dp(20), dp(8), dp(20), 0)
-            addView(input)
-            addView(empty)
-            // Short screens keep the results above the keyboard.
-            addView(list, LinearLayout.LayoutParams(-1, dp(if (resources.configuration.screenHeightDp < 600) 160 else 320)))
-        }
-        val dialog = AlertDialog.Builder(this)
-            .setTitle(getString(R.string.settings_search))
-            .setView(body)
-            .setNegativeButton(getString(R.string.cancel), null)
-            .show()
-        list.setOnItemClickListener { _, _, position, _ ->
-            dialog.dismiss()
-            openSearchResult(results[position])
-        }
-        input.requestFocus()
     }
 
     private fun advancedSettings(content: LinearLayout) {
@@ -2805,12 +2767,15 @@ class DiPlayActivity : ComponentActivity() {
             setupError != null -> getString(R.string.setup_needs_attention)
             CarPlayBackgroundSession.active -> getString(R.string.carplay_connected)
             running -> getString(R.string.connecting_to_your_iphone)
-            DiPlayPreferences.phoneAddress(this) != null -> "${getString(R.string.status_ready_for_prefix)}${DiPlayPreferences.phoneName(this)}"
+            DiPlayPreferences.phoneAddress(this) != null -> if (nissanAndroid44Profile)
+                getString(R.string.home_paired_device, DiPlayPreferences.phoneName(this))
+                else "${getString(R.string.status_ready_for_prefix)}${DiPlayPreferences.phoneName(this)}"
             else -> getString(R.string.ready_when_you_are)
         }
         status?.let { if (it.text.toString() != statusText) it.text = statusText }
         if (lastRunning != running) {
-            connectButton?.text = if (running) getString(R.string.open_carplay) else getString(R.string.connect_phone)
+            connectButton?.text = if (running) getString(R.string.open_carplay) else if (nissanAndroid44Profile)
+                getString(R.string.home_connect) else getString(R.string.connect_phone)
             disconnectButton?.visibility = if (running) View.VISIBLE else View.GONE
             disconnectButton?.isEnabled = true
             lastRunning = running
@@ -3035,7 +3000,6 @@ class DiPlayActivity : ComponentActivity() {
     }
 
     private fun toggle(parent: LinearLayout, title: String, description: String, value: Boolean, enabled: Boolean = true, save: (Boolean) -> Unit): Switch {
-        searchIndexSink?.add(title)
         val result = SettingsWidgets.createSwitchRow(
             context = this,
             label = title,
@@ -3096,7 +3060,7 @@ class DiPlayActivity : ComponentActivity() {
         }
         parent.addView(button, matchButton(0, 60)); parent.addView(space(12))
     }
-    private val cardUi by lazy { DiPlayCardUi(this) { searchIndexSink?.add(it) } }
+    private val cardUi by lazy { DiPlayCardUi(this) }
     private val settingsSectionBuilder by lazy { DiPlaySettingsSectionBuilder(this, cardUi) }
     private fun card() = cardUi.card()
     private fun column() = cardUi.column()
@@ -3127,15 +3091,14 @@ class DiPlayActivity : ComponentActivity() {
         private val BUTTON = DiPlayCardUi.BUTTON
         private val BORDER = DiPlayCardUi.BORDER
         private val ACCENT = DiPlayCardUi.ACCENT
-        private val RAIL_SELECTED = Color.rgb(24, 54, 92)
-        private val RAIL_SELECTED_BORDER = Color.rgb(42, 82, 130)
+        private val RAIL_SURFACE = Color.rgb(36, 40, 48)
+        private val RAIL_SELECTED = Color.rgb(27, 143, 235)
+        private val RAIL_SELECTED_BORDER = Color.rgb(54, 168, 248)
         private val TEXT = DiPlayCardUi.TEXT
         private val MUTED = DiPlayCardUi.MUTED
         private val WARNING = DiPlayCardUi.WARNING
         private val READY = Color.rgb(127, 205, 154)
         private const val RIPPLE = DiPlayCardUi.RIPPLE
-        private const val VALUE_SEPARATOR = DiPlayCardUi.VALUE_SEPARATOR
-        private const val SEARCH_HIGHLIGHT_MILLIS = 900L
         private const val SETTINGS_BLOCK_GAP_DP = 18
     }
 }

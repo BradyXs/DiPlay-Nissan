@@ -494,4 +494,11 @@
     <string name="carplay_night_headlights">По фарам автомобиля</string>
     <string name="carplay_night_headlights_hint">Используется сигнал освещения автомобиля; при его отсутствии применяется тема системы.</string>
     <string name="airplay_session_after_tcp_timeout">Сетевое соединение получено, но CarPlay не запустился. Повторная попытка.</string>
+    <string name="connection_step_auth">Авторизация</string>
+    <string name="connection_step_hotspot">Точка доступа</string>
+    <string name="connection_step_phone">iPhone</string>
+    <string name="connection_step_session">CarPlay</string>
+    <string name="connection_step_video">Видео</string>
+    <string name="connection_step_usb">USB</string>
+    <string name="connection_steps_complete">Выполнено %1$d из %2$d этапов</string>
 </resources>

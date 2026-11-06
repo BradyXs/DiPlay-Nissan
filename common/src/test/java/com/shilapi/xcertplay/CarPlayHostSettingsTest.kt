@@ -113,11 +113,9 @@ class CarPlayHostSettingsTest {
     @Test fun resumingReloadsSavedSettingsWithoutReplacingTheController() {
         val controller = attachController()
         AirPlayPersistence.saveSettingsGestureFingers(activity, 4)
-        AirPlayPersistence.saveDebugLogsEnabled(activity, true)
         AirPlayPersistence.saveMfiTarget(activity, MfiTarget.LOCAL)
         invoke("onResume")
         assertEquals(4, field("gestureFingerCount"))
-        assertEquals(true, field("debugLogsEnabled"))
         assertEquals(MfiTarget.LOCAL, field("mfiTarget"))
         assertSame(controller, field("controller"))
         assertEquals(0, field("restartGeneration"))

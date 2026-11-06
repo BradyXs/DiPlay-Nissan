@@ -17,7 +17,6 @@ import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
-import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -67,35 +66,31 @@ class ImageCropActivity : Activity() {
 
         cropView = SquareCropView(this)
         statusView = TextView(this).apply {
-            setTextColor(Color.WHITE)
+            setTextColor(DiPlayCardUi.TEXT)
             textSize = 16f
             gravity = Gravity.CENTER
             setPadding(dp(12), dp(8), dp(12), dp(8))
+            background = DiPlayCardUi(this@ImageCropActivity).rounded(
+                DiPlayCardUi.SURFACE, DiPlayCardUi.BORDER)
             text = getString(R.string.loading_image)
         }
 
+        val cardUi = DiPlayCardUi(this)
         val controls = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
             setPadding(dp(16), dp(10), dp(16), dp(16))
+            setBackgroundColor(DiPlayCardUi.BG)
         }
         controls.addView(
-            Button(this).apply {
-                text = getString(R.string.cancel)
-                isAllCaps = false
-                setOnClickListener {
-                    setResult(RESULT_CANCELED)
-                    finish()
-                }
+            cardUi.button(getString(R.string.cancel), false) {
+                setResult(RESULT_CANCELED)
+                finish()
             },
             LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f),
         )
         controls.addView(
-            Button(this).apply {
-                text = getString(R.string.save_1_1)
-                isAllCaps = false
-                setOnClickListener { saveCrop() }
-            },
+            cardUi.button(getString(R.string.save_1_1), true, ::saveCrop),
             LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
                 marginStart = dp(12)
             },

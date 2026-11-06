@@ -20,15 +20,11 @@ import com.shilapi.xcertplay.settings.SettingsTheme
 import kotlin.math.roundToInt
 
 /** View and card primitives shared by the home, connection, and settings builders. */
-internal class DiPlayCardUi(
-    private val context: Context,
-    private val onSearchTitle: (String) -> Unit = {},
-) {
+internal class DiPlayCardUi(private val context: Context) {
     fun dp(value: Int) = (value * context.resources.displayMetrics.density).roundToInt()
-    fun index(title: String) = onSearchTitle(title)
     fun card() = column().apply {
         background = rounded(SURFACE, BORDER)
-        setPadding(dp(24), dp(24), dp(24), dp(24))
+        setPadding(dp(20), dp(18), dp(20), dp(18))
     }
     fun column() = LinearLayout(context).apply {
         orientation = LinearLayout.VERTICAL
@@ -59,7 +55,6 @@ internal class DiPlayCardUi(
         compoundDrawablePadding = dp(12)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) foreground = focusRing()
         text = title
-        onSearchTitle(title.substringBefore(VALUE_SEPARATOR))
         setOnClickListener { click() }
     }
     fun actionButton(title: String, primary: Boolean, click: () -> Unit) =
@@ -163,15 +158,15 @@ internal class DiPlayCardUi(
     }
 
     companion object {
-        val BG = Color.rgb(12, 17, 27)
-        val SURFACE = Color.rgb(21, 30, 44)
-        val BUTTON = Color.rgb(31, 43, 61)
-        val BORDER = Color.rgb(42, 56, 75)
+        val BG = Color.rgb(18, 21, 27)
+        val SURFACE = Color.rgb(49, 53, 61)
+        val BUTTON = Color.rgb(57, 62, 71)
+        val BORDER = Color.rgb(77, 82, 91)
         val ACCENT = SettingsTheme.CARD.accent
         val TEXT = SettingsTheme.CARD.textPrimary
         val MUTED = SettingsTheme.CARD.textSecondary
         val WARNING = Color.rgb(255, 196, 128)
-        const val RIPPLE = 0x336F9FD9
+        const val RIPPLE = 0x444DAAFF
         const val VALUE_SEPARATOR = " · "
         private const val SPACER = "spacer"
         private const val CONTROL_HEIGHT_DP = 60

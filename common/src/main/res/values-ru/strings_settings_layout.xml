@@ -11,7 +11,6 @@
     <string name="settings_advanced_subtitle">Экспериментальные и зависящие от автомобиля параметры для опытных пользователей.</string>
     <string name="settings_advanced_caution_title">Меняйте осторожно</string>
     <string name="settings_advanced_caution_description">Эти функции могут зависеть от прошивки автомобиля, доступа ADB или экспериментального поведения CarPlay. Повседневные настройки находятся в категориях выше.</string>
-    <string name="settings_search">Поиск</string>
     <string name="settings_open_category">Открыть настройки: %1$s</string>
     <string name="settings_ready_connected">CarPlay активен. Изменения, требующие переподключения, будут отмечены.</string>
     <string name="settings_connection_summary">Телефон, кабель, беспроводное и автоматическое подключение</string>
@@ -28,8 +27,6 @@
     <string name="settings_open_advanced">Открыть дополнительные настройки</string>
     <string name="settings_reconnect_pending">Сохранено. Некоторые изменения вступят в силу после переподключения CarPlay.</string>
     <string name="settings_reconnect_now">Переподключить</string>
-    <string name="settings_search_hint">Название настройки, например частота кадров</string>
-    <string name="settings_search_empty">Ничего не найдено. Попробуйте другое слово.</string>
     <string name="settings_ready_wireless">Беспроводной CarPlay подключится к %1$s.</string>
     <string name="settings_ready_usb">Подключите iPhone кабелем USB, чтобы запустить CarPlay.</string>
     <string name="settings_connecting_description">DiPlay запускает CarPlay с вашим iPhone.</string>

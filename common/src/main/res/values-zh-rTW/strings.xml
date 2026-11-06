@@ -531,4 +531,11 @@
     <string name="carplay_night_headlights">跟隨車機大燈</string>
     <string name="carplay_night_headlights_hint">使用車機燈光訊號；訊號不可用時跟隨系統主題。</string>
     <string name="airplay_session_after_tcp_timeout">已收到網路連線，但 CarPlay 未啟動，正在重試。</string>
+    <string name="connection_step_auth">認證</string>
+    <string name="connection_step_hotspot">熱點</string>
+    <string name="connection_step_phone">連接手機</string>
+    <string name="connection_step_session">CarPlay</string>
+    <string name="connection_step_video">畫面</string>
+    <string name="connection_step_usb">USB</string>
+    <string name="connection_steps_complete">已完成 %1$d/%2$d 步</string>
 </resources>

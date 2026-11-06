@@ -8,14 +8,13 @@ import androidx.activity.ComponentActivity
 import androidx.appcompat.content.res.AppCompatResources
 import androidx.core.graphics.drawable.DrawableCompat
 
-/** One settings section: heading, card body, spacing, and search title. */
+/** One settings section: heading, card body, and spacing. */
 internal class DiPlaySettingsSectionBuilder(
     private val activity: ComponentActivity,
     private val ui: DiPlayCardUi,
 ) {
     fun add(parent: LinearLayout, title: String, icon: Int?, normalize: Boolean,
         build: (LinearLayout) -> Unit) = with(ui) {
-        index(title)
         val card = card()
         val heading = row().apply { gravity = Gravity.CENTER_VERTICAL; setPadding(0, 0, 0, dp(16)) }
         if (icon != null) heading.addView(ImageView(activity).apply {

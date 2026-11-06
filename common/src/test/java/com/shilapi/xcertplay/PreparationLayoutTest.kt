@@ -47,6 +47,6 @@ class PreparationLayoutTest {
             assertTrue("bottom height=$heightDp", top + panel.height * panel.scaleY <= viewport.height + 1f)
         }
         for (height in listOf(200, 240, 320, 400, 479, 480, 720)) layout(height)
-        assertEquals(34f, (panel.getChildAt(1) as TextView).textSize / activity.resources.displayMetrics.scaledDensity, 0.01f)
+        assertEquals(29f, (panel.getChildAt(1) as TextView).textSize / activity.resources.displayMetrics.scaledDensity, 0.01f)
     }
 }

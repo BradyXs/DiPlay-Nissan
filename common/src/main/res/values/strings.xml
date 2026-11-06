@@ -336,9 +336,6 @@
     <string name="settings_advanced_subtitle">Experimental and vehicle-specific controls for experienced users.</string>
     <string name="settings_advanced_caution_title">Change with care</string>
     <string name="settings_advanced_caution_description">These features can depend on vehicle firmware, ADB access, or experimental CarPlay behavior. Everyday settings are organized in the categories above.</string>
-    <string name="settings_search">Search</string>
-    <string name="settings_search_hint">Setting name, for example frame rate</string>
-    <string name="settings_search_empty">No setting matches. Try another word.</string>
     <string name="settings_open_category">Open %1$s settings</string>
     <string name="settings_ready_connected">CarPlay is active. Changes that need a reconnect will say so.</string>
     <string name="settings_ready_wireless">Wireless CarPlay will connect to %1$s.</string>
@@ -566,4 +563,20 @@
     <string name="carplay_night_headlights">Follow car headlights</string>
     <string name="carplay_night_headlights_hint">Uses the head unit’s light signal; follows the system theme when it is unavailable.</string>
     <string name="airplay_session_after_tcp_timeout">Network connection received, but CarPlay did not start. Retrying.</string>
+    <string name="connection_step_auth">Authentication</string>
+    <string name="connection_step_hotspot">Hotspot</string>
+    <string name="connection_step_phone">iPhone</string>
+    <string name="connection_step_session">CarPlay</string>
+    <string name="connection_step_video">Video</string>
+    <string name="connection_step_usb">USB</string>
+    <string name="connection_steps_complete">%1$d of %2$d steps complete</string>
+    <string name="home_wireless_connection">Wireless connection</string>
+    <string name="home_wired_connection">Wired connection</string>
+    <string name="home_connect">Connect</string>
+    <string name="home_paired_device">Paired device: %1$s</string>
+    <string name="home_wireless_recommended">Recommended</string>
+    <string name="home_wired_ready">Plug and play</string>
+    <string name="home_usb_hint">Connect with a USB data cable</string>
+    <string name="home_usb_connect">Connect by USB</string>
+    <string name="home_switch_iphone">Switch iPhone</string>
 </resources>

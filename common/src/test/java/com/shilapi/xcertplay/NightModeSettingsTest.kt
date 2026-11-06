@@ -169,27 +169,10 @@ class NightModeSettingsTest {
         assertTrue(button(R.string.carplay_night_end).text.toString().endsWith("05:45"))
     }
 
-    @Test fun searchingSettingsWithScheduledAppearanceKeepsTheSavedMode() {
-        AirPlayPersistence.saveCarPlayNightMode(activity, CarPlayNightMode.SCHEDULE)
-        renderOverview()
-
-        val index = ReflectionHelpers.callInstanceMethod<List<DiPlayActivity.SettingsSearchResult>>(
-            activity, "buildSettingsSearchIndex")
-
-        assertTrue(index.any {
-            it.title == activity.getString(R.string.carplay_night_mode) && it.category == SettingsCategory.DISPLAY
-        })
-        assertEquals(CarPlayNightMode.SCHEDULE, AirPlayPersistence.loadCarPlayNightMode(activity))
-        val current = ReflectionHelpers.getField<ScrollView>(activity, "rootScroll")
-        val appearance = views(current).filterIsInstance<Button>().single {
-            it.text.startsWith(activity.getString(R.string.carplay_night_mode) + " · ")
-        }
-        assertEquals(appearanceSummary(CarPlayNightMode.SCHEDULE), appearance.text.toString())
-    }
-
     private fun modeLabel(mode: CarPlayNightMode): Int = when (mode) {
         CarPlayNightMode.SYSTEM -> R.string.carplay_night_system
         CarPlayNightMode.AMBIENT -> R.string.carplay_night_ambient
+        CarPlayNightMode.HEADLIGHTS -> R.string.carplay_night_headlights
         CarPlayNightMode.DAY -> R.string.carplay_night_day
         CarPlayNightMode.NIGHT -> R.string.carplay_night_night
         CarPlayNightMode.SCHEDULE -> R.string.carplay_night_schedule

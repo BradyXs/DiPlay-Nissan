@@ -1,5 +1,8 @@
 package com.shilapi.xcertplay
 
+import android.animation.ObjectAnimator
+import android.animation.PropertyValuesHolder
+import android.animation.ValueAnimator
 import android.Manifest
 import android.content.ActivityNotFoundException
 import android.content.Context
@@ -25,6 +28,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.Process
 import android.os.SystemClock
+import android.provider.Settings
 import android.text.Editable
 import android.text.InputType
 import android.text.TextUtils
@@ -40,6 +44,7 @@ import android.view.ViewTreeObserver
 import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup
+import android.view.animation.LinearInterpolator
 import android.widget.Button
 import android.widget.EditText
 import android.widget.FrameLayout
@@ -325,6 +330,11 @@ class CarPlayHostActivity : ComponentActivity() {
     private var awaitingLocationPermission = false
     private var vpnReady = false
     private var latestStage = "Preparing CarPlay"
+    private var connectionProgress: CarPlayConnectionProgress? = null
+    private var paintConnectionProgress: () -> Unit = {}
+    private var connectionProgressFailed = false
+    private var waitingGlow: View? = null
+    private var waitingGlowAnimator: ObjectAnimator? = null
     private var darkMode = false
     private var paintWaitingScreen: () -> Unit = {}
     private var carPlayNightMode = CarPlayNightMode.SYSTEM
@@ -534,6 +544,10 @@ class CarPlayHostActivity : ComponentActivity() {
         )
         val reusedBackgroundSession = adoptBackgroundSession()
         authenticationBootstrapReady = reusedBackgroundSession
+        if (reusedBackgroundSession && CarPlayBackgroundSession.active) {
+            connectionProgress?.onSessionActive()
+            paintConnectionProgress()
+        }
         if (!reusedBackgroundSession) scheduleAuthenticationBootstrapAfterFirstDraw(root)
         microphoneAvailable =
             ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
@@ -827,6 +841,7 @@ class CarPlayHostActivity : ComponentActivity() {
             }
         }
         scheduleSafeAreaEditor()
+        updateWaitingGlowAnimation()
     }
 
     private fun scheduleSafeAreaEditor() {
@@ -912,6 +927,7 @@ class CarPlayHostActivity : ComponentActivity() {
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
+        updateWaitingGlowAnimation()
         if (hasFocus) {
             refreshConfiguration(source = ThemeModeDiagnostics.Source.WINDOW_FOCUS)
             applyFullscreenMode()
@@ -925,6 +941,7 @@ class CarPlayHostActivity : ComponentActivity() {
 
     override fun onPause() {
         uiActivityResumed = false
+        updateWaitingGlowAnimation()
         if (com.shilapi.xcertplay.host.BuildConfig.NISSAN_ANDROID_44_PROFILE) {
             window.decorView.findViewById<FrameLayout>(android.R.id.content)?.let(
                 NissanCarPlayVolumeOverlay::detachHost,
@@ -1036,49 +1053,128 @@ class CarPlayHostActivity : ComponentActivity() {
         val panel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
+            clipChildren = false
         }
+        val glowBackground = GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, intArrayOf(
+            Color.argb(150, 12, 180, 161), Color.argb(75, 40, 151, 245), Color.TRANSPARENT,
+        )).apply {
+            gradientType = GradientDrawable.RADIAL_GRADIENT
+            gradientRadius = dp(82).toFloat()
+        }
+        val glow = View(this).apply {
+            background = glowBackground
+            alpha = 0.55f
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        }
+        waitingGlow = glow
         val icon = ImageView(this).apply {
             setImageResource(R.drawable.ic_carplay)
             contentDescription = getString(R.string.carplay)
         }
-        panel.addView(icon, LinearLayout.LayoutParams(dp(88), dp(88)))
-        val title = TextView(this).apply {
-            text = getString(R.string.diplay)
-            gravity = Gravity.CENTER
-            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+        val iconStack = FrameLayout(this).apply {
+            clipChildren = false
+            clipToPadding = false
+            addView(glow, FrameLayout.LayoutParams(dp(164), dp(164), Gravity.CENTER))
+            addView(icon, FrameLayout.LayoutParams(-1, -1))
         }
-        panel.addView(title)
+        panel.addView(iconStack, LinearLayout.LayoutParams(dp(88), dp(88)))
         val stage = TextView(this).apply {
             text = getString(R.string.getting_carplay_ready)
             gravity = Gravity.CENTER
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
         }
         panel.addView(stage)
         val diagnostic = TextView(this).apply {
             textSize = 13f
             gravity = Gravity.CENTER
-            setTextColor(Color.rgb(168, 182, 202))
             setPadding(0, dp(8), 0, 0)
             maxLines = 4
+            visibility = View.GONE
         }
         panel.addView(diagnostic)
         stageDiagnosticView = diagnostic
-        val instructions = TextView(this).apply {
-            text = if (wirelessEnabled) getString(R.string.keep_your_iphone_nearby_with_bluetooth_and_wi_fi_on_allow)
-                else getString(R.string.use_a_usb_data_cable_and_unlock_your_iphone_allow_trust_an)
+        val progress = CarPlayConnectionProgress(wirelessEnabled).also { connectionProgress = it }
+        val progressSummary = TextView(this).apply {
+            textSize = 14f
+            gravity = Gravity.CENTER
+            visibility = View.GONE
+        }
+        panel.addView(progressSummary)
+        val progressBars = ArrayList<View>(progress.totalSteps)
+        val progressLabels = ArrayList<TextView>(progress.totalSteps)
+        val progressStrip = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
         }
-        panel.addView(instructions)
+        repeat(progress.totalSteps) {
+            val cell = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER
+            }
+            val bar = View(this)
+            cell.addView(bar, LinearLayout.LayoutParams(-1, dp(5)).apply {
+                leftMargin = dp(2)
+                rightMargin = dp(2)
+            })
+            val label = TextView(this).apply {
+                textSize = 14f
+                gravity = Gravity.CENTER
+                isSingleLine = true
+                ellipsize = TextUtils.TruncateAt.END
+            }
+            cell.addView(label, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) })
+            progressStrip.addView(cell, LinearLayout.LayoutParams(0, -2, 1f))
+            progressBars.add(bar)
+            progressLabels.add(label)
+        }
+        panel.addView(progressStrip, LinearLayout.LayoutParams(dp(560), -2).apply { topMargin = dp(22) })
+        paintConnectionProgress = {
+            val completed = progress.completedSteps
+            progressSummary.text = getString(R.string.connection_steps_complete, completed, progress.totalSteps)
+            progressStrip.contentDescription = progressSummary.text
+            val secondary = Color.rgb(146, 166, 185)
+            val names = intArrayOf(R.string.connection_step_auth,
+                if (progress.wireless) R.string.connection_step_hotspot else R.string.connection_step_usb,
+                R.string.connection_step_phone, R.string.connection_step_session, R.string.connection_step_video)
+            for (index in progressBars.indices) {
+                val done = index < completed
+                val current = index == completed
+                val color = when {
+                    done -> Color.rgb(70, 203, 143)
+                    current && connectionProgressFailed -> DiPlayCardUi.WARNING
+                    current -> DiPlayCardUi.ACCENT
+                    else -> Color.rgb(36, 55, 67)
+                }
+                progressBars[index].background = GradientDrawable().apply {
+                    setColor(color)
+                    cornerRadius = dp(3).toFloat()
+                }
+                progressLabels[index].text = if (done) "✓ ${getString(names[index])}" else getString(names[index])
+                progressLabels[index].setTextColor(if (done || current) Color.rgb(230, 245, 241) else secondary)
+            }
+            updateWaitingGlowAnimation()
+        }
+        val waitingUi = DiPlayCardUi(this)
+        fun styleWaitingButton(button: Button, primary: Boolean) {
+            button.setTextColor(Color.WHITE)
+            val fill = if (primary) Color.rgb(27, 47, 70) else DiPlayCardUi.BUTTON
+            button.background = compatibleRipple(ColorStateList.valueOf(DiPlayCardUi.RIPPLE),
+                waitingUi.rounded(fill, if (primary) fill else DiPlayCardUi.BORDER), null)
+            button.minHeight = dp(48)
+        }
         val recovery = Button(this).apply {
             text = getString(R.string.reset_carplay_wi_fi)
             isAllCaps = false
+            styleWaitingButton(this, false)
             visibility = View.GONE
             setOnClickListener { showDiPlayHome("wireless-recovery") }
             wifiRecoveryButton = this
         }
-        panel.addView(recovery, LinearLayout.LayoutParams(dp(300), dp(64)).apply { bottomMargin = dp(12) })
+        panel.addView(recovery, LinearLayout.LayoutParams(dp(240), dp(48)).apply { topMargin = dp(16) })
         val retry = Button(this).apply {
             text = getString(R.string.retry_carplay_connection)
             isAllCaps = false
+            styleWaitingButton(this, false)
             visibility = View.GONE
             setOnClickListener {
                 if (!CarPlayBackgroundSession.isOwner(this@CarPlayHostActivity) ||
@@ -1091,30 +1187,33 @@ class CarPlayHostActivity : ComponentActivity() {
             }
             startupRetryButton = this
         }
-        panel.addView(retry, LinearLayout.LayoutParams(dp(300), dp(64)).apply { bottomMargin = dp(12) })
+        panel.addView(retry, LinearLayout.LayoutParams(dp(240), dp(48)).apply { topMargin = dp(12) })
         val back = Button(this).apply {
             text = getString(R.string.back_to_diplay)
             isAllCaps = false
-            setTextColor(Color.rgb(12, 17, 27))
-            background = GradientDrawable().apply {
-                setColor(Color.rgb(166, 200, 255))
-                cornerRadius = dp(20).toFloat()
-            }
+            styleWaitingButton(this, true)
             setOnClickListener { showDiPlayHome() }
         }
-        panel.addView(back, LinearLayout.LayoutParams(dp(300), dp(64)))
+        panel.addView(back, LinearLayout.LayoutParams(dp(200), dp(48)).apply {
+            gravity = Gravity.CENTER_HORIZONTAL
+            topMargin = dp(38)
+        })
         val gestureHint = TextView(this).apply {
             text = getString(R.string.open_diplay_settings_hint, gestureFingerCount)
             gravity = Gravity.CENTER
         }
+        gestureHint.visibility = View.GONE
         panel.addView(gestureHint)
         paintWaitingScreen = {
             val colors = WaitingScreenColors.of(darkMode)
-            viewport.setBackgroundColor(colors.background)
-            title.setTextColor(colors.text)
+            viewport.background = GradientDrawable(GradientDrawable.Orientation.TL_BR,
+                intArrayOf(colors.background, Color.rgb(6, 28, 46), colors.background))
+            glowBackground.colors = intArrayOf(
+                Color.argb(160, 12, 180, 120), Color.argb(80, 40, 151, 180), Color.TRANSPARENT,
+            )
             stage.setTextColor(colors.text)
-            instructions.setTextColor(colors.secondary)
-            gestureHint.setTextColor(colors.secondary)
+            diagnostic.setTextColor(colors.secondary)
+            paintConnectionProgress()
         }
         paintWaitingScreen()
         viewport.addView(panel, FrameLayout.LayoutParams(-1, -2, Gravity.CENTER))
@@ -1129,7 +1228,11 @@ class CarPlayHostActivity : ComponentActivity() {
             fun size(short: Float, regular: Float) = short + (regular - short) * fraction
             fun spacing(short: Float, regular: Float) = dp(size(short, regular).toInt())
             val availableWidth = viewport.width - viewport.paddingLeft - viewport.paddingRight - dp(48)
-            val buttonWidth = minOf(dp(300), availableWidth.coerceAtLeast(dp(48)))
+            val buttonWidth = minOf(dp(240), availableWidth.coerceAtLeast(dp(48)))
+            val stripWidth = minOf(dp(560), availableWidth.coerceAtLeast(dp(48)))
+            if (progressStrip.layoutParams.width != stripWidth) {
+                progressStrip.layoutParams = progressStrip.layoutParams.apply { width = stripWidth }
+            }
             for (button in listOf(back, recovery, retry)) {
                 if (button.layoutParams.width != buttonWidth) {
                     button.layoutParams = button.layoutParams.apply { width = buttonWidth }
@@ -1139,15 +1242,18 @@ class CarPlayHostActivity : ComponentActivity() {
             preparationHeight = height
             panel.setPadding(dp(24), spacing(16f, 32f), dp(24), spacing(16f, 32f))
             val iconSize = spacing(54f, 88f)
-            icon.layoutParams = LinearLayout.LayoutParams(iconSize, iconSize)
-            title.textSize = size(26f, 34f)
-            title.setPadding(0, spacing(8f, 18f), 0, spacing(6f, 14f))
-            stage.textSize = size(19f, 22f)
-            instructions.textSize = size(15f, 17f)
-            instructions.setPadding(0, spacing(8f, 14f), 0, spacing(12f, 24f))
+            iconStack.layoutParams = LinearLayout.LayoutParams(iconSize, iconSize)
+            val glowSize = spacing(116f, 164f)
+            glow.layoutParams = FrameLayout.LayoutParams(glowSize, glowSize, Gravity.CENTER)
+            glowBackground.gradientRadius = glowSize / 2f
+            stage.textSize = size(22f, 29f)
+            stage.setPadding(0, spacing(14f, 22f), 0, spacing(4f, 8f))
+            progressSummary.textSize = size(12f, 14f)
+            for (label in progressLabels) label.textSize = size(11f, 14f)
+            progressStrip.layoutParams = progressStrip.layoutParams.apply { this.height = spacing(42f, 52f) }
             for (button in listOf(back, recovery, retry)) {
-                button.textSize = size(17f, 18f)
-                button.layoutParams = button.layoutParams.apply { this.height = spacing(50f, 64f) }
+                button.textSize = size(15f, 17f)
+                button.layoutParams = button.layoutParams.apply { this.height = spacing(42f, 48f) }
             }
             gestureHint.textSize = size(12.5f, 13f)
             gestureHint.setPadding(0, spacing(10f, 20f), 0, 0)
@@ -1679,6 +1785,8 @@ class CarPlayHostActivity : ComponentActivity() {
                     }
                     activeAirPlaySession = session
                     CarPlayBackgroundSession.active = true
+                    connectionProgress?.onSessionActive()
+                    paintConnectionProgress()
                     reconnectAttempts = 0
                     logThemeState(ThemeModeDiagnostics.Source.SESSION_ACTIVE, resources.configuration)
                     syncAirPlayDarkMode(ThemeModeDiagnostics.Source.SESSION_ACTIVE)
@@ -1690,6 +1798,8 @@ class CarPlayHostActivity : ComponentActivity() {
                 runOnUiThread {
                     if (controllerGeneration != restartGeneration || activeAirPlaySession !== session || shuttingDown.get()) return@runOnUiThread
                     visibleVideoFrameReleased = true
+                    connectionProgress?.onFirstFrame()
+                    paintConnectionProgress()
                     updateDebugOverlays()
                     uiPageProbe?.onVideoFrameReleased()
                     if (!startupRetryBudget.firstFrame(session, android.os.SystemClock.elapsedRealtime())) return@runOnUiThread
@@ -1724,6 +1834,7 @@ class CarPlayHostActivity : ComponentActivity() {
                     CarPlayBackgroundSession.active = false
                     activeScreenStreamTypes.clear()
                     visibleVideoFrameReleased = false
+                    resetConnectionProgress()
                     setConnectionStage(getString(R.string.carplay_session_ended_reconnecting))
                     appendLog("AirPlay session ended; reconnecting from scratch")
                     reconnectAfterLoss("AirPlay session ended")
@@ -1751,6 +1862,7 @@ class CarPlayHostActivity : ComponentActivity() {
                     startupRetryBudget.disconnected()
                     activeScreenStreamTypes.clear()
                     visibleVideoFrameReleased = false
+                    resetConnectionProgress()
                     setConnectionStage(getString(R.string.transport_error_reconnecting))
                     appendLog("CarPlay transport error: $message; reconnecting from scratch")
                     reconnectAfterLoss("CarPlay transport error: $message")
@@ -1812,8 +1924,13 @@ class CarPlayHostActivity : ComponentActivity() {
     ): (CarPlayStatus) -> Unit = report@{ status ->
         if (controllerGeneration != restartGeneration) return@report
         val description = status.describe()
+        if (status !is CarPlayStatus.Failed) {
+            connectionProgressFailed = false
+            connectionProgress?.onStatus(status)
+            paintConnectionProgress()
+        }
         if (status is CarPlayStatus.Failed) setFailedConnectionStage(status.message)
-        else setConnectionStage(description, exact = true)
+        else setConnectionStage(description)
         when (status) {
             is CarPlayStatus.Failed -> if (status.wifiResetRequired) {
                 wifiRecoveryButton?.visibility = View.VISIBLE
@@ -1966,6 +2083,7 @@ class CarPlayHostActivity : ComponentActivity() {
             nissanAndroid44Profile = com.shilapi.xcertplay.host.BuildConfig.NISSAN_ANDROID_44_PROFILE,
             nissanCarPlayAudioMode = com.shilapi.xcertplay.host.BuildConfig.NISSAN_ANDROID_44_PROFILE &&
                 !airPlayConfig.disableAudioOutput,
+            onCallMediaActiveChanged = renderer::setMediaSuppressedForCall,
             onNavigationUpdate = renderer::noteNavigationUpdate,
             onAirPlayDucking = renderer::noteAirPlayDucking,
         )
@@ -2320,6 +2438,8 @@ class CarPlayHostActivity : ComponentActivity() {
         appendLog(reason)
         activeScreenStreamTypes.clear()
         visibleVideoFrameReleased = false
+        resetConnectionProgress()
+        paintWaitingScreen()
         setConnectionStage(reason)
         Log.i(TAG, "$reason; rebuilding stack at ${size.width}x${size.height}")
         val generation = ++restartGeneration
@@ -2591,19 +2711,18 @@ class CarPlayHostActivity : ComponentActivity() {
         }
     }
 
-    private fun setConnectionStage(message: String, exact: Boolean = false) {
+    private fun setConnectionStage(message: String) {
         latestStage = message
-        stageStatusView?.text = if (exact) message else friendlyStage(message)
+        stageStatusView?.text = friendlyStage(message)
+        stageDiagnosticView?.visibility = View.GONE
         stageStartedAtMillis = System.currentTimeMillis()
         val generation = ++stageWatchdogGeneration
-        stageDiagnosticView?.text = "阶段已进入 · 0 秒"
         fun tick() {
             if (generation != stageWatchdogGeneration || shuttingDown.get()) return
             val elapsed = ((System.currentTimeMillis() - stageStartedAtMillis) / 1000L).coerceAtLeast(0L)
-            stageDiagnosticView?.text = if (elapsed >= 20L) {
-                "当前阶段已等待 ${elapsed} 秒 · 若持续不变，请拍摄此界面"
-            } else {
-                "阶段已进入 · ${elapsed} 秒"
+            if (elapsed >= 20L) {
+                stageDiagnosticView?.visibility = View.VISIBLE
+                stageDiagnosticView?.text = "当前阶段已等待 ${elapsed} 秒 · 若持续不变，请拍摄此界面"
             }
             mainHandler.postDelayed({ tick() }, 1000L)
         }
@@ -2614,6 +2733,9 @@ class CarPlayHostActivity : ComponentActivity() {
     private fun setFailedConnectionStage(message: String) {
         latestStage = message
         stageWatchdogGeneration++
+        connectionProgressFailed = true
+        paintConnectionProgress()
+        stageDiagnosticView?.visibility = View.VISIBLE
         stageDiagnosticView?.text = DiagnosticRedactor.redact(message)?.take(240)
         val friendly = friendlyStage(message)
         val base = if (friendly == getString(R.string.getting_carplay_ready)) {
@@ -2621,13 +2743,48 @@ class CarPlayHostActivity : ComponentActivity() {
         } else {
             friendly
         }
-        stageStatusView?.text = withRetryDetail(base, message)
+        stageStatusView?.text = base
         updateDebugOverlays()
+    }
+
+    private fun resetConnectionProgress() {
+        connectionProgressFailed = false
+        connectionProgress?.reset(wirelessEnabled)
+        paintConnectionProgress()
     }
 
     private fun updateDebugOverlays() {
         statusScrollView?.visibility = View.GONE
         connectionPanel?.visibility = if (activeScreenStreamTypes.isEmpty() || !visibleVideoFrameReleased) View.VISIBLE else View.GONE
+        updateWaitingGlowAnimation()
+    }
+
+    private fun updateWaitingGlowAnimation() {
+        val glow = waitingGlow ?: return
+        val animate = uiActivityResumed && hasWindowFocus() &&
+            connectionPanel?.visibility == View.VISIBLE && !connectionProgressFailed &&
+            Settings.Global.getFloat(contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) > 0f
+        if (animate) {
+            if (waitingGlowAnimator?.isRunning == true) return
+            glow.setLayerType(View.LAYER_TYPE_HARDWARE, null)
+            waitingGlowAnimator = ObjectAnimator.ofPropertyValuesHolder(glow,
+                PropertyValuesHolder.ofFloat(View.ALPHA, 0.44f, 0.75f, 0.51f, 0.68f, 0.44f),
+                PropertyValuesHolder.ofFloat(View.SCALE_X, 0.96f, 1.09f, 1.01f, 1.06f, 0.96f),
+                PropertyValuesHolder.ofFloat(View.SCALE_Y, 0.96f, 1.07f, 1.03f, 1.09f, 0.96f),
+            ).apply {
+                duration = 3600L
+                repeatCount = ValueAnimator.INFINITE
+                interpolator = LinearInterpolator()
+                start()
+            }
+        } else {
+            waitingGlowAnimator?.cancel()
+            waitingGlowAnimator = null
+            glow.alpha = 0.55f
+            glow.scaleX = 1f
+            glow.scaleY = 1f
+            glow.setLayerType(View.LAYER_TYPE_NONE, null)
+        }
     }
 
     private fun friendlyStage(message: String): String = when {
@@ -2658,14 +2815,6 @@ class CarPlayHostActivity : ComponentActivity() {
         message.contains("reconnect", true) || message.contains("ended", true) -> getString(R.string.reconnecting_to_your_iphone)
         message.contains("active", true) || message.contains("running", true) -> getString(R.string.opening_carplay)
         else -> getString(R.string.getting_carplay_ready)
-    }
-
-    private fun withRetryDetail(base: String, message: String): String {
-        val detail = DiagnosticRedactor.redact(message)
-            ?.trim()
-            ?.takeIf { it.isNotEmpty() && !it.equals(base, ignoreCase = true) }
-            ?: return base
-        return "$base\n$detail"
     }
 
     private fun appendLog(message: String) {

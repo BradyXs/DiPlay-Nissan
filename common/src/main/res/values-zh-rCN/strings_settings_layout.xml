@@ -11,7 +11,6 @@
     <string name="settings_advanced_subtitle">面向有经验用户的实验性及车型专用设置。</string>
     <string name="settings_advanced_caution_title">请谨慎更改</string>
     <string name="settings_advanced_caution_description">这些功能可能取决于车辆固件、ADB 权限或 CarPlay 的实验性行为。日常设置位于上方各类别中。</string>
-    <string name="settings_search">搜索</string>
     <string name="settings_open_category">打开%1$s设置</string>
     <string name="settings_ready_connected">CarPlay 正在运行。需要重新连接的更改会特别说明。</string>
     <string name="settings_connection_summary">手机、有线、无线及自动连接</string>
@@ -28,8 +27,6 @@
     <string name="settings_open_advanced">打开高级设置</string>
     <string name="settings_reconnect_pending">已保存。部分更改将在 CarPlay 重新连接后生效。</string>
     <string name="settings_reconnect_now">立即重新连接</string>
-    <string name="settings_search_hint">设置名称，例如帧率</string>
-    <string name="settings_search_empty">没有匹配的设置。请换个词试试。</string>
     <string name="settings_ready_wireless">无线 CarPlay 将连接到 %1$s。</string>
     <string name="settings_ready_usb">使用 USB 数据线连接 iPhone 以启动 CarPlay。</string>
     <string name="settings_connecting_description">DiPlay 正在与你的 iPhone 启动 CarPlay。</string>

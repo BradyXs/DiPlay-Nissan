@@ -14,12 +14,12 @@ enum class SettingsTheme(
 ) {
     CARD(
         isOverlay = false,
-        textPrimary = Color.rgb(241, 245, 252),
-        textSecondary = Color.rgb(168, 182, 202),
-        accent = Color.rgb(166, 200, 255),
-        accentTrack = Color.rgb(0x32, 0x58, 0x8c),
-        trackOff = Color.rgb(42, 56, 75),
-        buttonText = Color.rgb(12, 17, 27),
+        textPrimary = Color.rgb(248, 249, 252),
+        textSecondary = Color.rgb(191, 196, 205),
+        accent = Color.rgb(44, 159, 245),
+        accentTrack = Color.rgb(52, 199, 89),
+        trackOff = Color.rgb(113, 117, 126),
+        buttonText = Color.WHITE,
     ),
     OVERLAY(
         isOverlay = true,

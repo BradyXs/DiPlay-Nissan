@@ -22,7 +22,7 @@ class SafeAreaEditorView(context: Context) : View(context) {
     private val touchRadius = 40f * density
     private val dimPaint = Paint().apply { color = Color.argb(118, 0, 0, 0) }
     private val linePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.rgb(127, 205, 154)
+        color = DiPlayCardUi.ACCENT
         strokeWidth = 3f * density
         style = Paint.Style.STROKE
     }

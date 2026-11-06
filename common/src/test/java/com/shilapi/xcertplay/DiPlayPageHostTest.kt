@@ -17,22 +17,6 @@ import org.robolectric.util.ReflectionHelpers
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [29], qualifiers = "en-w600dp-h700dp")
 class DiPlayPageHostTest {
-    @Test fun openingSettingsSearchDoesNotReplaceTheVisiblePage() {
-        val context = RuntimeEnvironment.getApplication()
-        val controller = Robolectric.buildActivity(DiPlayActivity::class.java,
-            Intent(context, DiPlayActivity::class.java).putExtra("page", "settings")).setup()
-        try {
-            val activity = controller.get()
-            val host = ReflectionHelpers.getField<DiPlayPageHost>(activity, "pageHost")
-            val visiblePage = host.getChildAt(0)
-            ReflectionHelpers.callInstanceMethod<List<*>>(activity, "buildSettingsSearchIndex")
-            assertSame(visiblePage, host.getChildAt(0))
-            assertEquals(1, host.childCount)
-        } finally {
-            controller.pause().stop().destroy()
-        }
-    }
-
     @Test fun rebuildingSettingsKeepsTheWindowRootAndOneVisiblePage() {
         val context = RuntimeEnvironment.getApplication()
         val controller = Robolectric.buildActivity(DiPlayActivity::class.java,

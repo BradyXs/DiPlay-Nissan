@@ -1,7 +1,27 @@
 <resources>
     <style name="Theme.Xcertplay" parent="android:style/Theme.Holo.NoActionBar">
         <item name="android:fontFamily">sans</item>
-        <item name="android:windowBackground">#0C111B</item>
+        <item name="android:windowBackground">#12151B</item>
+        <item name="android:alertDialogTheme">@style/Theme.Xcertplay.Dialog</item>
         <item name="android:windowActionModeOverlay">true</item>
+    </style>
+    <style name="Theme.Xcertplay.Dialog" parent="android:style/Theme.Holo.Dialog">
+        <item name="android:windowBackground">@drawable/bg_dp_dialog</item>
+        <item name="android:alertDialogStyle">@style/Theme.Xcertplay.AlertPanel</item>
+        <item name="android:textColorPrimary">#F8F9FC</item>
+        <item name="android:textColorSecondary">#BFC4CD</item>
+    </style>
+    <!-- Holo paints each AlertDialog section separately. Let the single window surface show through. -->
+    <style name="Theme.Xcertplay.AlertPanel" parent="@*android:style/AlertDialog.Holo">
+        <item name="android:fullDark">@android:color/transparent</item>
+        <item name="android:topDark">@android:color/transparent</item>
+        <item name="android:centerDark">@android:color/transparent</item>
+        <item name="android:bottomDark">@android:color/transparent</item>
+        <item name="android:fullBright">@android:color/transparent</item>
+        <item name="android:topBright">@android:color/transparent</item>
+        <item name="android:centerBright">@android:color/transparent</item>
+        <item name="android:bottomBright">@android:color/transparent</item>
+        <item name="android:centerMedium">@android:color/transparent</item>
+        <item name="android:bottomMedium">@android:color/transparent</item>
     </style>
 </resources>

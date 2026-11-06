@@ -80,6 +80,9 @@ class SettingsWidgetsTest {
         assertEquals(listOf("Title", "First line\nSecond line"), texts.map { it.text.toString() })
         assertTrue(texts.all { it.lineSpacingExtra == SettingsTheme.CARD.dp(context, 3).toFloat() })
         assertEquals("Title", row.switch.contentDescription)
+        assertEquals(SettingsTheme.CARD.dp(context, 54), row.switch.layoutParams.width)
+        assertEquals(SettingsTheme.CARD.dp(context, 50), row.switch.switchMinWidth)
+        assertFalse(row.switch.showText)
     }
 
     @Test @Config(sdk = [28]) fun android9HotspotChoiceDoesNotExposeUnavailableWifiDirect() {

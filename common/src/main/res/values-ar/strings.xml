@@ -494,4 +494,11 @@
     <string name="carplay_night_headlights">اتباع أضواء السيارة</string>
     <string name="carplay_night_headlights_hint">يستخدم إشارة أضواء السيارة؛ وعند عدم توفرها يتبع مظهر النظام.</string>
     <string name="airplay_session_after_tcp_timeout">تم استقبال اتصال شبكة، لكن CarPlay لم يبدأ. جارٍ إعادة المحاولة.</string>
+    <string name="connection_step_auth">المصادقة</string>
+    <string name="connection_step_hotspot">نقطة الاتصال</string>
+    <string name="connection_step_phone">iPhone</string>
+    <string name="connection_step_session">CarPlay</string>
+    <string name="connection_step_video">الفيديو</string>
+    <string name="connection_step_usb">USB</string>
+    <string name="connection_steps_complete">اكتمل %1$d من %2$d خطوات</string>
 </resources>

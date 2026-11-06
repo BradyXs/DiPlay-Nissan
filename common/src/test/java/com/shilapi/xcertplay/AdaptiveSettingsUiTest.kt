@@ -96,21 +96,38 @@ class AdaptiveSettingsUiTest {
         assertEquals("settings", ReflectionHelpers.getField<String>(screen, "page"))
     }
 
-    @Test fun searchOpensTheCategoryThatOwnsTheSetting() {
+    @Test fun settingsHeaderHasNoSearchAction() {
         val screen = openSettings()
-        val index = ReflectionHelpers.callInstanceMethod<List<Any>>(screen, "buildSettingsSearchIndex")
-        val results = ReflectionHelpers.callInstanceMethod<List<Any>>(screen, "searchSettings",
-            ReflectionHelpers.ClassParameter(List::class.java, index),
-            ReflectionHelpers.ClassParameter(String::class.java, "FRAME rate"))
-        val frameRate = results.single {
-            ReflectionHelpers.getField<String>(it, "title") == screen.getString(R.string.frame_rate)
-        }
+        assertFalse(texts(screen).any { it.text.toString() == "Search" })
+    }
 
-        ReflectionHelpers.callInstanceMethod<Unit>(screen, "openSearchResult",
-            ReflectionHelpers.ClassParameter(frameRate.javaClass, frameRate))
+    @Test
+    @Config(sdk = [29], qualifiers = "en-w1024dp-h600dp-land")
+    fun expandedSettingsUseTheRailInsteadOfRepeatingTheCategoryHeading() {
+        val screen = openSettings()
+        ReflectionHelpers.setField(screen, "settingsCategory", SettingsCategory.AUDIO)
+        ReflectionHelpers.callInstanceMethod<Unit>(screen, "render")
+        val body = ReflectionHelpers.getField<LinearLayout>(screen, "settingsBody")
 
-        assertEquals(SettingsCategory.DISPLAY, ReflectionHelpers.getField<SettingsCategory>(screen, "settingsCategory"))
-        assertTrue(texts(screen).any { it.text.startsWith(screen.getString(R.string.frame_rate) + " · ") })
+        assertTrue(ReflectionHelpers.getField<ScrollView>(screen, "settingsRailScroll") != null)
+        assertFalse(descendants(body).filterIsInstance<TextView>().any {
+            it.text == screen.getString(R.string.audio) || it.text == screen.getString(R.string.settings_audio_summary)
+        })
+        assertTrue(descendants(body).filterIsInstance<TextView>().any {
+            it.text == screen.getString(R.string.audio_routing)
+        })
+    }
+
+    @Test fun compactSettingsKeepTheCategoryHeadingWithoutARail() {
+        val screen = openSettings()
+        ReflectionHelpers.setField(screen, "settingsCategory", SettingsCategory.AUDIO)
+        ReflectionHelpers.callInstanceMethod<Unit>(screen, "render")
+        val body = ReflectionHelpers.getField<LinearLayout>(screen, "settingsBody")
+
+        assertTrue(ReflectionHelpers.getField<ScrollView?>(screen, "settingsRailScroll") == null)
+        assertTrue(descendants(body).filterIsInstance<TextView>().any {
+            it.text == screen.getString(R.string.audio)
+        })
     }
 
     @Test fun cardControlsShareOneHeightAndGap() {
@@ -136,14 +153,6 @@ class AdaptiveSettingsUiTest {
         }
         val page = scroll.getChildAt(0)
         assertFalse(descendants(scroll).any { it.tag == "spacer" && it.parent !== page })
-    }
-
-    @Test fun searchNamesOpenTheirOwnCategoryNotACardThatLinksToIt() {
-        val screen = openSettings()
-        val index = ReflectionHelpers.callInstanceMethod<List<Any>>(screen, "buildSettingsSearchIndex")
-        val advanced = index.single { ReflectionHelpers.getField<String>(it, "title") == screen.getString(R.string.settings_advanced) }
-
-        assertEquals(SettingsCategory.ADVANCED, ReflectionHelpers.getField<SettingsCategory>(advanced, "category"))
     }
 
     @Test fun aRowBeforeAButtonKeepsTheGap() {

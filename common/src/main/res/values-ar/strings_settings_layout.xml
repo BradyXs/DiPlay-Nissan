@@ -11,7 +11,6 @@
     <string name="settings_advanced_subtitle">عناصر تحكم تجريبية وخاصة بالسيارة للمستخدمين ذوي الخبرة.</string>
     <string name="settings_advanced_caution_title">غيّر بحذر</string>
     <string name="settings_advanced_caution_description">قد تعتمد هذه الميزات على برنامج السيارة الثابت أو الوصول عبر ADB أو سلوك تجريبي في CarPlay. الإعدادات اليومية موجودة في الفئات أعلاه.</string>
-    <string name="settings_search">بحث</string>
     <string name="settings_open_category">فتح إعدادات %1$s</string>
     <string name="settings_ready_connected">CarPlay نشط. ستوضح التغييرات التي تتطلب إعادة الاتصال ذلك.</string>
     <string name="settings_connection_summary">الهاتف والكابل والاتصال اللاسلكي والتلقائي</string>
@@ -28,8 +27,6 @@
     <string name="settings_open_advanced">فتح الإعدادات المتقدمة</string>
     <string name="settings_reconnect_pending">تم الحفظ. تُطبَّق بعض التغييرات عند إعادة اتصال CarPlay.</string>
     <string name="settings_reconnect_now">إعادة الاتصال الآن</string>
-    <string name="settings_search_hint">اسم الإعداد، مثل معدل الإطارات</string>
-    <string name="settings_search_empty">لا يوجد إعداد مطابق. جرّب كلمة أخرى.</string>
     <string name="settings_ready_wireless">سيتصل CarPlay اللاسلكي بـ %1$s.</string>
     <string name="settings_ready_usb">وصّل iPhone بكابل USB لبدء CarPlay.</string>
     <string name="settings_connecting_description">يبدأ DiPlay تشغيل CarPlay مع iPhone.</string>

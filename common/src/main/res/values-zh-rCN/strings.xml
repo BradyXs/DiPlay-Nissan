@@ -531,4 +531,20 @@
     <string name="carplay_night_headlights">跟随车机大灯</string>
     <string name="carplay_night_headlights_hint">使用车机灯光信号；信号不可用时跟随系统主题。</string>
     <string name="airplay_session_after_tcp_timeout">已收到网络连接，但 CarPlay 未启动，正在重试。</string>
+    <string name="connection_step_auth">认证</string>
+    <string name="connection_step_hotspot">热点</string>
+    <string name="connection_step_phone">连接手机</string>
+    <string name="connection_step_session">CarPlay</string>
+    <string name="connection_step_video">画面</string>
+    <string name="connection_step_usb">USB</string>
+    <string name="connection_steps_complete">已完成 %1$d/%2$d 步</string>
+    <string name="home_wireless_connection">无线连接</string>
+    <string name="home_wired_connection">有线连接</string>
+    <string name="home_connect">点击连接</string>
+    <string name="home_paired_device">已配对设备：%1$s</string>
+    <string name="home_wireless_recommended">无线推荐</string>
+    <string name="home_wired_ready">即插即用</string>
+    <string name="home_usb_hint">插入 USB 数据线</string>
+    <string name="home_usb_connect">USB 连接</string>
+    <string name="home_switch_iphone">切换其他 iPhone</string>
 </resources>

@@ -18,6 +18,10 @@ https://developer.apple.com/assets/elements/icons/carplay/carplay-96x96_2x.png
 
 CarPlay and the CarPlay icon are Apple Inc. marks/assets. This asset is not covered by the project's open-source code license. Its use here does not imply Apple approval or certification.
 
+## Settings icons
+
+The `ic_dp_*` line icons in `common/src/main/res/drawable-*/`, except `ic_dp_chevron.xml`, are adapted from [Lucide](https://lucide.dev/icons/) SVGs into density-specific PNGs for Android 4.4. Lucide Icons and Contributors license them under ISC; some icons are derived from Feather and also carry its MIT notice. Both notices are retained in `docs/licenses/Lucide-ISC.txt`.
+
 ## Runtime dependencies
 
 - AndroidX and Jetpack Compose — Android Open Source Project; Apache License 2.0.
