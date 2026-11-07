@@ -239,6 +239,7 @@ class CarPlayController(
     @Volatile private var mux: Iap2UsbMuxHost? = null
     @Volatile private var csm: Iap2Session? = null
     @Volatile private var activeSession: AirPlaySession? = null
+    private var firmwareHfpSession: com.shilapi.xcertplay.media.NissanHfpSessionClient? = null
     private val playbackStatus = com.shilapi.xcertplay.media.CarPlayPlaybackStatus()
     private val callState = CarPlayCallState()
     private val phoneIdentityDiagnosticRunning = java.util.concurrent.atomic.AtomicBoolean(false)
@@ -493,6 +494,16 @@ class CarPlayController(
             if (closed) return
         }
         connectionDiagnostic("start transport=${config.transport}")
+        if (config.transport == CarPlayTransport.WIRED && firmwareHfpSession == null &&
+            AnwPhoneLinkSnapshot.isInstalled(appContext)) {
+            firmwareHfpSession = com.shilapi.xcertplay.media.NissanHfpSessionClient(appContext, {
+                val session = activeSession
+                val token = activeAirPlaySessionToken()
+                val address = session?.deviceBtMac?.let(BluetoothAddressResolver::normalize)
+                if (closed || session == null || token == null || address == null || activeSession !== session) null
+                else token to address
+            }, ::debugLog)
+        }
         if (!hasRequiredUsbService()) return
         if (config.transport == CarPlayTransport.WIRED) {
             permissionCloseable = iphoneHost.registerPermissionReceiver(::onIphonePermission)
@@ -614,6 +625,8 @@ class CarPlayController(
             if (closed) return
             closed = true
         }
+        firmwareHfpSession?.close()
+        firmwareHfpSession = null
         synchronized(callState) { callState.clear(); lastCallEndedAtMs = 0L }
         firstTcpWatchdog?.terminate()
         startupTimer.shutdownNow()

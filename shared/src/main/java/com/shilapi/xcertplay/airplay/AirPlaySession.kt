@@ -77,7 +77,7 @@ class AirPlaySession(
     internal val pairVerify = PairVerify(identity, pairings)
     internal var cipher: ControlCipher? = null
     internal var encBuf = ByteArray(0)
-    internal var deviceBtMac = ""
+    @Volatile internal var deviceBtMac = ""
     internal val activeStreams = linkedSetOf<Int>()
 
     /** Counts the iPhone's cluster stream setups; 0 while no cluster stream is up. */
