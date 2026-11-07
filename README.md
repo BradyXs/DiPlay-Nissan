@@ -4,7 +4,7 @@ DiPlay-Nissan 基于 [DiPlay](https://github.com/shihabal3amri/DiPlay) 和 [DiPl
 
 ## 界面预览
 
-以下预览展示设置总览、音频控制，以及无线和 USB CarPlay 的连接步骤。
+以下预览展示设置总览、音频控制，以及当前应用实际运行时的连接页面：无线蓝牙阶段和 USB iAP2 控制通道阶段。
 
 | 设置总览 | 音频设置 |
 |:---:|:---:|
