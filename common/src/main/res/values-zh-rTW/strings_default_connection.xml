@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="default_connection_mode">預設連線模式</string>
-    <string name="default_connection_last_used">上次使用</string>
+    <string name="default_connection_last_used">自動偵測（USB 優先）</string>
     <string name="default_connection_wireless">無線</string>
     <string name="default_connection_usb">USB</string>
-    <string name="default_connection_description">開啟 DiPlay 時，使用預設連線模式和選定的 iPhone。手動連線按鈕使用你選擇的模式。</string>
+    <string name="default_connection_description">開啟 DiPlay 或開機自動連線時優先偵測已連接的 iPhone USB；未偵測到時使用預設模式和選定的 iPhone。手動連線按鈕使用你選擇的模式。</string>
 </resources>

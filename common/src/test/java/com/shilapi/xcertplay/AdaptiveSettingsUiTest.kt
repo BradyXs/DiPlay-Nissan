@@ -1,5 +1,9 @@
 package com.shilapi.xcertplay
 
+import com.shilapi.xcertplay.connection.DiPlayPreferences
+
+import com.shilapi.xcertplay.settings.SettingsCategory
+
 import android.content.Context
 import android.content.Intent
 import android.os.Looper
@@ -329,6 +333,8 @@ class AdaptiveSettingsUiTest {
         assertTrue(text(R.string.car_button_in_carplay) in vehicle)
         assertTrue(text(R.string.wheel_siri_key) in vehicle)
         assertTrue(text(R.string.settings_wheel_keys) in vehicle)
+        assertTrue(display.any { it.startsWith(text(R.string.carplay_dock) + " · ") })
+        assertFalse(vehicle.any { it.startsWith(text(R.string.carplay_dock) + " · ") })
         assertFalse(text(R.string.call_echo_cancellation) in display)
     }
 

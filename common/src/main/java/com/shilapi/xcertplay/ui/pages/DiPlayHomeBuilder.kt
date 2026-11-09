@@ -1,4 +1,4 @@
-package com.shilapi.xcertplay
+package com.shilapi.xcertplay.ui.pages
 
 import android.os.Build
 import android.graphics.Color
@@ -12,6 +12,10 @@ import android.widget.ImageView
 import androidx.activity.ComponentActivity
 import com.shilapi.xcertplay.host.R
 import com.shilapi.xcertplay.orchestration.WirelessHotspotMode
+import com.shilapi.xcertplay.AirPlayPersistence
+import com.shilapi.xcertplay.NissanHomeArtworkView
+import com.shilapi.xcertplay.connection.DiPlayPreferences
+import com.shilapi.xcertplay.ui.components.DiPlayCardUi
 
 /** Builds the home page and its connection card without owning connection state. */
 internal class DiPlayHomeBuilder(

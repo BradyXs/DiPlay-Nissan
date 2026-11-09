@@ -5,7 +5,9 @@ import android.content.Context
 import android.content.Intent
 import android.util.Log
 
-/** Starts the CarPlay host after boot when the user has enabled the startup option. */
+internal const val AUTO_CONNECT_AFTER_BOOT_EXTRA = "com.shilapi.xcertplay.extra.AUTO_CONNECT_AFTER_BOOT"
+
+/** Starts DiPlay and requests automatic CarPlay connection after boot when enabled. */
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != Intent.ACTION_BOOT_COMPLETED) return
@@ -19,6 +21,7 @@ class BootReceiver : BroadcastReceiver() {
                     Intent.FLAG_ACTIVITY_CLEAR_TOP or
                     Intent.FLAG_ACTIVITY_SINGLE_TOP,
             )
+            putExtra(AUTO_CONNECT_AFTER_BOOT_EXTRA, true)
         }
         try {
             context.startActivity(launch)

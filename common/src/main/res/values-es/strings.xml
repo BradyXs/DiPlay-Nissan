@@ -106,7 +106,7 @@
     <string name="audio">Audio</string>
     <string name="audio_routing">Enrutamiento de audio</string>
     <string name="auto">Auto</string>
-    <string name="auto_start_on_boot">Inicio automático al arrancar</string>
+    <string name="auto_start_on_boot">Conectar a CarPlay automáticamente al arrancar</string>
     <string name="automatic_connection">Conexión automática</string>
     <string name="availability_depends_on_your_head_unit_s_startup_settings">La disponibilidad depende de los ajustes de inicio de tu unidad principal.</string>
     <string name="back">Atrás</string>
@@ -318,7 +318,7 @@
     <string name="show_on_screen_debug_logs">Mostrar registros de depuración en pantalla</string>
     <string name="show_password">Mostrar contraseña</string>
     <string name="show_the_side_map_only_when_its_card_is_open_and_switch_to">Muestra el mapa lateral solo cuando su tarjeta está abierta y cambia al mapa completo en el tema del mapa. Los cambios de tema y tarjeta mantienen CarPlay conectado.</string>
-    <string name="start_carplay_automatically_after_device_boot">Iniciar CarPlay automáticamente tras el arranque del dispositivo</string>
+    <string name="start_carplay_automatically_after_device_boot">Al arrancar, DiPlay busca un iPhone conectado por USB y prioriza CarPlay por cable. Si no encuentra ninguno, usa el modo de conexión predeterminado.</string>
     <string name="starting">Iniciando</string>
     <string name="starting_airplay_service">Iniciando el servicio de AirPlay</string>
     <string name="starting_wireless_hotspot">Iniciando el punto de acceso inalámbrico</string>
@@ -446,7 +446,7 @@
     <string name="carplay_dock_automatic">Automático</string>
     <string name="carplay_dock_driver_side">Lado del conductor</string>
     <string name="carplay_dock_bottom">Abajo</string>
-    <string name="carplay_dock_hint">Dónde muestra CarPlay sus apps, la hora y el estado. Entre «Lado del conductor» y «Abajo» cambia al instante; «Automático» deja la elección al iPhone y se aplica tras reconectar.</string>
+    <string name="carplay_dock_hint">Elige dónde muestra CarPlay sus apps, la hora y el estado. Automático deja elegir al iPhone; una posición fija se aplica en la próxima conexión.</string>
     <string name="carplay_call_controls_experimental">Botones de llamadas de CarPlay (experimental)</string>
     <string name="call_echo_cancellation">Cancelación de eco en llamadas (experimental)</string>
     <string name="call_echo_cancellation_description">Intenta reducir el eco de los altavoces que recibe la otra persona en llamadas de CarPlay. El resultado depende del equipo del coche. Se aplica en la próxima conexión de CarPlay.</string>

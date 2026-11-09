@@ -106,7 +106,7 @@
     <string name="audio">الصوت</string>
     <string name="audio_routing">توجيه الصوت</string>
     <string name="auto">تلقائي</string>
-    <string name="auto_start_on_boot">التشغيل التلقائي عند الإقلاع</string>
+    <string name="auto_start_on_boot">الاتصال بـ CarPlay تلقائياً عند بدء التشغيل</string>
     <string name="automatic_connection">اتصال تلقائي</string>
     <string name="availability_depends_on_your_head_unit_s_startup_settings">تعتمد التوفر على إعدادات بدء وحدة القيادة.</string>
     <string name="back">رجوع</string>
@@ -318,7 +318,7 @@
     <string name="show_on_screen_debug_logs">إظهار سجلات التصحيح على الشاشة</string>
     <string name="show_password">إظهار كلمة المرور</string>
     <string name="show_the_side_map_only_when_its_card_is_open_and_switch_to">إظهار الخريطة الجانبية فقط عند فتح بطاقتها، والتبديل إلى الخريطة الكاملة في سمة الخريطة. تغييرات السمة والبطاقة تُبقي CarPlay متصلاً.</string>
-    <string name="start_carplay_automatically_after_device_boot">بدء CarPlay تلقائياً بعد إقلاع الجهاز</string>
+    <string name="start_carplay_automatically_after_device_boot">بعد بدء التشغيل، يبحث DiPlay عن iPhone متصل عبر USB ويفضّل CarPlay السلكي. إذا لم يجده، يستخدم وضع الاتصال الافتراضي.</string>
     <string name="starting">جارٍ البدء</string>
     <string name="starting_airplay_service">جارٍ بدء خدمة AirPlay</string>
     <string name="starting_wireless_hotspot">جارٍ بدء نقطة الاتصال اللاسلكية</string>
@@ -446,7 +446,7 @@
     <string name="carplay_dock_automatic">تلقائي</string>
     <string name="carplay_dock_driver_side">جهة السائق</string>
     <string name="carplay_dock_bottom">في الأسفل</string>
-    <string name="carplay_dock_hint">مكان عرض CarPlay لتطبيقاته والساعة والحالة. التبديل بين «جهة السائق» و«في الأسفل» فوري؛ أما «تلقائي» فيترك الاختيار لجهاز iPhone ويُطبَّق بعد إعادة الاتصال.</string>
+    <string name="carplay_dock_hint">اختر مكان عرض تطبيقات CarPlay والساعة والحالة. يترك الوضع التلقائي الاختيار لـ iPhone؛ ويسري الموضع الثابت عند الاتصال التالي.</string>
     <string name="carplay_call_controls_experimental">أزرار مكالمات CarPlay (تجريبي)</string>
     <string name="call_echo_cancellation">إلغاء صدى المكالمات (تجريبي)</string>
     <string name="call_echo_cancellation_description">يحاول تقليل صدى السماعات المرسل إلى الطرف الآخر أثناء مكالمات CarPlay. تعتمد النتيجة على وحدة السيارة. يُطبَّق عند الاتصال التالي بـ CarPlay.</string>

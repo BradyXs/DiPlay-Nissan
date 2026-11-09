@@ -108,7 +108,7 @@
     <string name="audio">Audio</string>
     <string name="audio_routing">Audio routing</string>
     <string name="auto">Auto</string>
-    <string name="auto_start_on_boot">Auto-start on boot</string>
+    <string name="auto_start_on_boot">Auto-connect to CarPlay on boot</string>
     <string name="automatic_connection">Automatic connection</string>
     <string name="usb_auto_confirm_title">Auto-confirm USB permission</string>
     <string name="usb_auto_confirm_subtitle">Automatically accept the Android USB permission prompt when an iPhone is connected via cable (requires Accessibility Service)</string>
@@ -362,7 +362,7 @@
     <string name="show_on_screen_debug_logs">Show on-screen debug logs</string>
     <string name="show_password">Show password</string>
     <string name="show_the_side_map_only_when_its_card_is_open_and_switch_to">Show the side map only when its card is open, and switch to the full map in Map theme. Theme and card changes keep CarPlay connected.</string>
-    <string name="start_carplay_automatically_after_device_boot">Start CarPlay automatically after device boot</string>
+    <string name="start_carplay_automatically_after_device_boot">After startup, DiPlay checks for an attached iPhone over USB and prefers wired CarPlay. If none is found, it uses the default connection mode.</string>
     <string name="starting">Starting</string>
     <string name="starting_airplay_service">Starting AirPlay service</string>
     <string name="starting_wireless_hotspot">Starting wireless hotspot</string>
@@ -509,7 +509,7 @@
     <string name="carplay_dock_automatic">Automatic</string>
     <string name="carplay_dock_driver_side">Driver\'s side</string>
     <string name="carplay_dock_bottom">Bottom</string>
-    <string name="carplay_dock_hint">Where CarPlay shows its apps, clock and status. Between Driver\'s side and Bottom it moves at once; Automatic leaves it to the iPhone and applies after a reconnect.</string>
+    <string name="carplay_dock_hint">Choose where CarPlay shows its apps, clock and status. Automatic lets iPhone choose; a fixed position takes effect on the next connection.</string>
     <string name="auto_grant_incomplete">Setup did not verify every requested permission. Check each status below; enable network ADB and retry, or use the manual setup. Existing permissions are kept.</string>
     <string name="carplay_call_controls_experimental">CarPlay call keys (experimental)</string>
     <string name="call_echo_cancellation">Call echo cancellation (experimental)</string>

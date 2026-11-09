@@ -1,4 +1,4 @@
-package com.shilapi.xcertplay
+package com.shilapi.xcertplay.ui.components
 
 import android.content.Context
 import android.content.res.ColorStateList
@@ -15,6 +15,7 @@ import android.widget.Switch
 import android.widget.TextView
 import androidx.appcompat.content.res.AppCompatResources
 import androidx.core.graphics.drawable.DrawableCompat
+import com.shilapi.xcertplay.compatibleRipple
 import com.shilapi.xcertplay.host.R
 import com.shilapi.xcertplay.settings.SettingsTheme
 import kotlin.math.roundToInt

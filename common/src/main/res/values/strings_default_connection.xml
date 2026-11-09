@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="default_connection_mode">Default connection mode</string>
-    <string name="default_connection_last_used">Last used</string>
+    <string name="default_connection_last_used">Automatic (USB first)</string>
     <string name="default_connection_wireless">Wireless</string>
     <string name="default_connection_usb">USB</string>
-    <string name="default_connection_description">Use the default connection mode and selected iPhone when DiPlay opens. Manual connection buttons use the mode you choose.</string>
+    <string name="default_connection_description">When DiPlay opens or starts with the car, it prefers an attached iPhone over USB, then uses the default mode and selected iPhone. Manual connection buttons use the mode you choose.</string>
 </resources>

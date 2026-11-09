@@ -12,6 +12,7 @@ internal object StartupDiagnosticSnapshot {
                 .putLong("receivedAt", System.currentTimeMillis())
                 .putBoolean("launchEnabled", launchEnabled)
                 .putString("launchResult", if (launchEnabled) "pending" else "disabled")
+                .putString("autoConnectResult", if (launchEnabled) "pending" else "disabled")
                 .remove("failureClass").apply()
         }
     }
@@ -25,6 +26,14 @@ internal object StartupDiagnosticSnapshot {
         }
     }
 
+    fun autoConnectResult(context: Context, result: String) {
+        runCatching {
+            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+                .putString("autoConnectResult", result.take(80)
+                    .replace(Regex("[^A-Za-z0-9_-]"), "?")).apply()
+        }
+    }
+
     fun report(context: Context): String = runCatching {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val receivedAt = prefs.getLong("receivedAt", 0)
@@ -34,6 +43,7 @@ internal object StartupDiagnosticSnapshot {
             "Boot diagnostics received=true receivedAtEpochMs=$receivedAt " +
                 "launchEnabledAtBoot=${prefs.getBoolean("launchEnabled", false)} " +
                 "launchResult=${prefs.getString("launchResult", "unknown")} " +
+                "autoConnectResult=${prefs.getString("autoConnectResult", "unknown")} " +
                 "failureClass=${prefs.getString("failureClass", "none") ?: "none"}; " +
                 "startActivity-returned does not prove the OEM displayed the app."
         }

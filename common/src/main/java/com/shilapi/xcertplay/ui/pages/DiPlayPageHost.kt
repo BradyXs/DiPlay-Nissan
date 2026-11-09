@@ -1,4 +1,4 @@
-package com.shilapi.xcertplay
+package com.shilapi.xcertplay.ui.pages
 
 import android.content.Context
 import android.view.View

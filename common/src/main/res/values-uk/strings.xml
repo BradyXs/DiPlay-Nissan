@@ -109,7 +109,7 @@
     <string name="audio">Аудіо</string>
     <string name="audio_routing">Спрямування аудіо</string>
     <string name="auto">Авто</string>
-    <string name="auto_start_on_boot">Автозапуск після завантаження</string>
+    <string name="auto_start_on_boot">Автопідключення до CarPlay після завантаження</string>
     <string name="automatic_connection">Автоматичне підключення</string>
     <string name="availability_depends_on_your_head_unit_s_startup_settings">Доступність залежить від налаштувань запуску головного пристрою.</string>
     <string name="back">Назад</string>
@@ -328,7 +328,7 @@
     <string name="show_on_screen_debug_logs">Показувати журнали налагодження на екрані</string>
     <string name="show_password">Показати пароль</string>
     <string name="show_the_side_map_only_when_its_card_is_open_and_switch_to">Показувати карту збоку, лише коли відкрито її картку, та переходити до повної карти в темі «Карта». Зміна теми чи картки не перериває CarPlay.</string>
-    <string name="start_carplay_automatically_after_device_boot">Автоматично запускати CarPlay після завантаження пристрою</string>
+    <string name="start_carplay_automatically_after_device_boot">Після запуску DiPlay перевіряє підключений через USB iPhone та надає перевагу дротовому CarPlay. Якщо пристрій не знайдено, використовується типовий режим підключення.</string>
     <string name="starting">Запуск</string>
     <string name="starting_airplay_service">Запуск служби AirPlay</string>
     <string name="starting_wireless_hotspot">Запуск бездротової точки доступу</string>
@@ -457,7 +457,7 @@
     <string name="carplay_dock_automatic">Автоматично</string>
     <string name="carplay_dock_driver_side">З боку водія</string>
     <string name="carplay_dock_bottom">Знизу</string>
-    <string name="carplay_dock_hint">Де CarPlay показує програми, годинник і стан. Між «З боку водія» і «Знизу» перемикається одразу; «Автоматично» залишає вибір iPhone і діє після перепідключення.</string>
+    <string name="carplay_dock_hint">Виберіть розташування програм, годинника та стану CarPlay. В автоматичному режимі вибирає iPhone; фіксоване розташування застосовується під час наступного підключення.</string>
     <string name="carplay_call_controls_experimental">Кнопки викликів CarPlay (експериментально)</string>
     <string name="call_echo_cancellation">Придушення луни у дзвінках (експериментально)</string>
     <string name="call_echo_cancellation_description">Намагається зменшити луну динаміків, яку чує співрозмовник під час дзвінків CarPlay. Результат залежить від головного пристрою. Застосовується під час наступного підключення CarPlay.</string>

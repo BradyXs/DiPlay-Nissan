@@ -101,7 +101,7 @@
     <string name="audio">音频</string>
     <string name="audio_routing">音频路由</string>
     <string name="auto">自动</string>
-    <string name="auto_start_on_boot">开机后自动启动</string>
+    <string name="auto_start_on_boot">开机后自动连接 CarPlay</string>
     <string name="automatic_connection">自动连接</string>
     <string name="usb_auto_confirm_title">自动确认 USB 权限</string>
     <string name="usb_auto_confirm_subtitle">有线连接 iPhone 时自动确认系统 USB 权限弹窗（需要无障碍服务）</string>
@@ -329,7 +329,7 @@
     <string name="show_on_screen_debug_logs">在屏幕上显示调试日志</string>
     <string name="show_password">显示密码</string>
     <string name="show_the_side_map_only_when_its_card_is_open_and_switch_to">仅在地图卡片展开时显示侧方地图，并在“地图主题”中切换为完整地图。更改主题或卡片不会中断 CarPlay 连接。</string>
-    <string name="start_carplay_automatically_after_device_boot">设备启动后自动启动 CarPlay</string>
+    <string name="start_carplay_automatically_after_device_boot">车机启动后先检测已连接的 iPhone USB，并优先使用有线 CarPlay；未检测到时按默认连接模式启动。</string>
     <string name="starting">正在启动</string>
     <string name="starting_airplay_service">正在启动 AirPlay 服务</string>
     <string name="starting_wireless_hotspot">正在启动无线热点</string>
@@ -477,7 +477,7 @@
     <string name="carplay_dock_automatic">自动</string>
     <string name="carplay_dock_driver_side">驾驶员一侧</string>
     <string name="carplay_dock_bottom">底部</string>
-    <string name="carplay_dock_hint">CarPlay 显示应用、时钟和状态的位置。在“驾驶员一侧”和“底部”之间切换立即生效；“自动”由 iPhone 决定，重新连接后生效。</string>
+    <string name="carplay_dock_hint">设置 CarPlay 程序栏的位置。选择“自动”时由 iPhone 决定；固定位置将在下次连接 CarPlay 时生效。</string>
     <string name="auto_grant_incomplete">未验证全部请求权限。请检查下方各项状态；开启网络 ADB 后重试，或使用手动设置。现有权限保持不变。</string>
     <string name="carplay_call_controls_experimental">CarPlay 通话按键（实验性）</string>
     <string name="call_echo_cancellation">通话回声消除（实验性）</string>

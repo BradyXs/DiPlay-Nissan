@@ -1,8 +1,11 @@
-package com.shilapi.xcertplay
+package com.shilapi.xcertplay.ui.pages
 
 import android.widget.LinearLayout
 import androidx.activity.ComponentActivity
 import com.shilapi.xcertplay.host.R
+import com.shilapi.xcertplay.connection.DiPlayPreferences
+import com.shilapi.xcertplay.ui.components.DiPlayCardUi
+import com.shilapi.xcertplay.ui.settings.DiPlaySettingsSectionBuilder
 
 /** Connection setup cards; Bluetooth, USB, and hotspot actions stay with the activity. */
 internal class DiPlayConnectionBuilder(

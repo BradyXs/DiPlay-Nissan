@@ -1,5 +1,7 @@
 package com.shilapi.xcertplay
 
+import com.shilapi.xcertplay.ui.components.DiPlayCardUi
+
 import android.content.Context
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable

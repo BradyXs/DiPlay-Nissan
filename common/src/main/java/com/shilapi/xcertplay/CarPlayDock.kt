@@ -4,9 +4,8 @@ import android.content.Context
 import com.shilapi.xcertplay.airplay.AirPlayInfoPlist
 
 /**
- * Where CarPlay puts its dock (app shortcuts, clock and status). Automatic leaves it to the iPhone,
- * which picks the driver's side on most screens. A fixed choice declares one whole-screen view area per
- * edge, so switching between the driver's side and the bottom moves the dock without reconnecting.
+ * Where CarPlay puts its dock (app shortcuts, clock and status). Automatic leaves it to the iPhone;
+ * a fixed choice declares whole-screen view areas for the selected edge.
  */
 enum class CarPlayDock(val edge: Int?) {
     AUTOMATIC(null),
@@ -18,9 +17,10 @@ enum class CarPlayDock(val edge: Int?) {
         private const val KEY_DOCK = "dock"
 
         fun load(context: Context): CarPlayDock =
-            if (com.shilapi.xcertplay.host.BuildConfig.NISSAN_ANDROID_44_PROFILE) AUTOMATIC else
-                entries.firstOrNull { it.name == context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY_DOCK, null) }
-                    ?: AUTOMATIC
+            entries.firstOrNull {
+                it.name == context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                    .getString(KEY_DOCK, null)
+            } ?: AUTOMATIC
 
         fun save(context: Context, dock: CarPlayDock) =
             context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(KEY_DOCK, dock.name).apply()

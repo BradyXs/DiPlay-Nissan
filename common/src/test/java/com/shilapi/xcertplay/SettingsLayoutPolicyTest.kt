@@ -1,5 +1,9 @@
 package com.shilapi.xcertplay
 
+import com.shilapi.xcertplay.settings.SettingsCategory
+import com.shilapi.xcertplay.settings.SettingsInformationArchitecture
+import com.shilapi.xcertplay.settings.SettingsSection
+
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue

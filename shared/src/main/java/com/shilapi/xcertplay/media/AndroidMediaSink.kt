@@ -33,6 +33,7 @@ import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.ScheduledFuture
+import java.util.concurrent.RejectedExecutionException
 
 internal fun audioTrackAttributesForFocus(track: AudioTrack, configured: AudioAttributes): AudioAttributes =
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -371,6 +372,9 @@ class AndroidMediaSink(
     private var pendingVoiceRestore: ScheduledFuture<*>? = null
     private var voiceWakeReserved = false
     private var voiceRestoreGeneration = 0L
+    private val siriVoiceReservationId = AudioStreamId(Int.MIN_VALUE, "speechrecognition", Long.MIN_VALUE)
+    private var pendingSiriVoiceReservation: ScheduledFuture<*>? = null
+    private val siriVoiceReservationTimeoutMs = 30_000L
     private val audioModeLock = Any()
     private var communicationModeStream: AudioStreamId? = null
     private var savedAudioMode = AudioManager.MODE_NORMAL
@@ -851,8 +855,64 @@ class AndroidMediaSink(
             coordinatedMicrophones.add(id)
             onAudioDiagnostic("Microphone: Nissan voice wake reserved type=$audioType stream=$id " +
                 "active=${coordinatedMicrophones.size}")
+            if (id != siriVoiceReservationId && siriVoiceReservationId in coordinatedMicrophones) {
+                pendingSiriVoiceReservation?.cancel(false)
+                pendingSiriVoiceReservation = null
+                releaseNissanMicrophone(siriVoiceReservationId)
+                onAudioDiagnostic("Microphone: key Siri voice lease transferred to input stream type=$audioType")
+            }
             true
         }
+
+    /** Pause the Nissan wake recorder before a steering-wheel key asks the phone to open Siri. */
+    fun reserveNissanVoiceForSiri(onReady: (Boolean) -> Unit) {
+        if (!nissanMicrophoneCoordination) {
+            onReady(true)
+            return
+        }
+        try {
+            voiceRestoreExecutor.execute {
+                val reserved = claimNissanMicrophone(siriVoiceReservationId, "speechrecognition")
+                if (reserved) {
+                    try {
+                        synchronized(voiceCoordinationLock) {
+                            pendingSiriVoiceReservation?.cancel(false)
+                            pendingSiriVoiceReservation = voiceRestoreExecutor.schedule({
+                                synchronized(voiceCoordinationLock) {
+                                    pendingSiriVoiceReservation = null
+                                    if (siriVoiceReservationId in coordinatedMicrophones) {
+                                        onAudioDiagnostic("Microphone: key Siri voice lease expired without input stream")
+                                        releaseNissanMicrophone(siriVoiceReservationId)
+                                    }
+                                }
+                            }, siriVoiceReservationTimeoutMs, TimeUnit.MILLISECONDS)
+                        }
+                    } catch (rejected: RejectedExecutionException) {
+                        releaseNissanMicrophone(siriVoiceReservationId)
+                        onAudioDiagnostic("Microphone: key Siri voice lease timer unavailable")
+                        runCatching { onReady(false) }
+                        return@execute
+                    }
+                }
+                onAudioDiagnostic("Microphone: key Siri voice lease acquired=$reserved")
+                runCatching { onReady(reserved) }
+            }
+        } catch (rejected: RejectedExecutionException) {
+            onAudioDiagnostic("Microphone: key Siri voice lease executor unavailable")
+            runCatching { onReady(false) }
+        }
+    }
+
+    fun releaseNissanSiriVoiceReservation(reason: String) {
+        synchronized(voiceCoordinationLock) {
+            pendingSiriVoiceReservation?.cancel(false)
+            pendingSiriVoiceReservation = null
+            if (siriVoiceReservationId in coordinatedMicrophones) {
+                onAudioDiagnostic("Microphone: key Siri voice lease released reason=$reason")
+                releaseNissanMicrophone(siriVoiceReservationId)
+            }
+        }
+    }
 
     private fun releaseNissanMicrophone(id: AudioStreamId) {
         synchronized(voiceCoordinationLock) {
@@ -955,6 +1015,8 @@ class AndroidMediaSink(
                 voiceRestoreGeneration++
                 pendingVoiceRestore?.cancel(false)
                 pendingVoiceRestore = null
+                pendingSiriVoiceReservation?.cancel(false)
+                pendingSiriVoiceReservation = null
                 coordinatedMicrophones.clear()
                 voiceWakeReserved = false
                 nissanVoiceWakeCoordinator?.close()

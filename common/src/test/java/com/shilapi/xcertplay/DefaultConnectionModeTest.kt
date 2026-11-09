@@ -1,5 +1,8 @@
 package com.shilapi.xcertplay
 
+import com.shilapi.xcertplay.connection.DefaultConnectionMode
+import com.shilapi.xcertplay.connection.DiPlayPreferences
+
 import android.app.AlertDialog
 import android.content.Intent
 import android.os.Looper

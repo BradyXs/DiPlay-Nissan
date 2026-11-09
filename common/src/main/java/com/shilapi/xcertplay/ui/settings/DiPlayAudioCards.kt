@@ -1,12 +1,19 @@
-package com.shilapi.xcertplay
+package com.shilapi.xcertplay.ui.settings
 
 import android.os.Handler
 import android.view.Gravity
 import android.view.KeyEvent
 import android.widget.LinearLayout
 import android.widget.SeekBar
+import com.shilapi.xcertplay.AirPlayPersistence
+import com.shilapi.xcertplay.CarPlayBackgroundSession
+import com.shilapi.xcertplay.CarPlayProgressStyle
+import com.shilapi.xcertplay.DiPlayActivity
+import com.shilapi.xcertplay.NissanOemNavigationVolume
+import com.shilapi.xcertplay.NissanOemPhoneVolume
 import com.shilapi.xcertplay.host.R
 import com.shilapi.xcertplay.media.MediaAudioBuffer
+import com.shilapi.xcertplay.ui.components.DiPlayCardUi
 
 /** Builds audio controls; the activity owns persistence and the active CarPlay session. */
 internal class DiPlayAudioCards(

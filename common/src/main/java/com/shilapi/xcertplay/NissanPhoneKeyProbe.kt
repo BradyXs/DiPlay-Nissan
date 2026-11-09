@@ -257,7 +257,7 @@ internal object NissanPhoneKeyProbe {
             controller.callEndedRecently(CALL_END_KEY_GUARD_MS) || WheelKeySettings.siriKey(context)
     }
 
-    /** The firmware has already consumed this key; never run the legacy OEM-voice workaround. */
+    /** The firmware has consumed this key; acquire its voice lease before asking Siri to open input. */
     internal fun onArbitratedAnswer(context: Context) {
         if (!canArbitrateAnswer(context)) {
             record(context, "arbitration commit dropped reason=session_changed")
@@ -280,9 +280,46 @@ internal object NissanPhoneKeyProbe {
                 record(context, "arbitration Siri ignored reason=duplicate")
                 return
             }
-            val sent = controller.requestSiri()
-            if (!sent) siriGate.release(controller, now)
-            record(context, "arbitration Siri queued=$sent")
+            current.sink.reserveNissanVoiceForSiri { voiceLease ->
+                val latest = CarPlayBackgroundSession.snapshot()
+                if (latest?.controller !== controller || !canArbitrateAnswer(context)) {
+                    current.sink.releaseNissanSiriVoiceReservation("session_changed_before_request")
+                    siriGate.release(controller, SystemClock.elapsedRealtime())
+                    record(context, "arbitration Siri skipped reason=session_changed_before_request voiceLease=$voiceLease")
+                    return@reserveNissanVoiceForSiri
+                }
+                val latestCall = controller.currentCallSnapshot()
+                if (latestCall?.phase == CarPlayCallPhase.RINGING) {
+                    current.sink.releaseNissanSiriVoiceReservation("call_started_before_request")
+                    siriGate.release(controller, SystemClock.elapsedRealtime())
+                    if (!answerGate.claim(controller, latestCall.epoch)) {
+                        record(context, "arbitration answer ignored reason=duplicate_after_voice_lease")
+                        return@reserveNissanVoiceForSiri
+                    }
+                    val answered = controller.answerCall()
+                    if (!answered) answerGate.release(controller, latestCall.epoch)
+                    record(context, "arbitration answer sent=$answered after_voice_lease=true")
+                    return@reserveNissanVoiceForSiri
+                }
+                if (latestCall != null || current.sink.nissanActiveAudioChannel() == "call" ||
+                    controller.callEndedRecently(CALL_END_KEY_GUARD_MS)) {
+                    current.sink.releaseNissanSiriVoiceReservation("phone_state_changed_before_request")
+                    siriGate.release(controller, SystemClock.elapsedRealtime())
+                    record(context, "arbitration Siri skipped reason=phone_state_changed_before_request")
+                    return@reserveNissanVoiceForSiri
+                }
+                if (!voiceLease) {
+                    siriGate.release(controller, SystemClock.elapsedRealtime())
+                    record(context, "arbitration Siri skipped reason=firmware_voice_lease_unavailable")
+                    return@reserveNissanVoiceForSiri
+                }
+                val sent = controller.requestSiri()
+                if (!sent) {
+                    siriGate.release(controller, SystemClock.elapsedRealtime())
+                    current.sink.releaseNissanSiriVoiceReservation("siri_request_rejected")
+                }
+                record(context, "arbitration Siri queued=$sent voiceLease=$voiceLease")
+            }
         } else if (call.phase == CarPlayCallPhase.RINGING) {
             if (!answerGate.claim(controller, call.epoch)) {
                 record(context, "arbitration answer ignored reason=duplicate")

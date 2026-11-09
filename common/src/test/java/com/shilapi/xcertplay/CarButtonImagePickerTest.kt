@@ -1,5 +1,7 @@
 package com.shilapi.xcertplay
 
+import com.shilapi.xcertplay.settings.SettingsCategory
+
 import android.content.ActivityNotFoundException
 import android.app.AlertDialog
 import android.content.Intent

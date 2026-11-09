@@ -1,5 +1,8 @@
 package com.shilapi.xcertplay
 
+import com.shilapi.xcertplay.ui.components.DiPlayCardUi
+import com.shilapi.xcertplay.ui.pages.DiPlayHomeBuilder
+
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button

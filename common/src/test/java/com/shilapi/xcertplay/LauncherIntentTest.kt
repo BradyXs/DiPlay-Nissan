@@ -1,5 +1,7 @@
 package com.shilapi.xcertplay
 
+import com.shilapi.xcertplay.settings.SettingsCategory
+
 import android.content.Intent
 import android.os.Bundle
 import android.view.ViewGroup

@@ -1,4 +1,4 @@
-package com.shilapi.xcertplay
+package com.shilapi.xcertplay.ui.settings
 
 import android.view.Gravity
 import android.view.View
@@ -7,6 +7,7 @@ import android.widget.LinearLayout
 import androidx.activity.ComponentActivity
 import androidx.appcompat.content.res.AppCompatResources
 import androidx.core.graphics.drawable.DrawableCompat
+import com.shilapi.xcertplay.ui.components.DiPlayCardUi
 
 /** One settings section: heading, card body, and spacing. */
 internal class DiPlaySettingsSectionBuilder(
