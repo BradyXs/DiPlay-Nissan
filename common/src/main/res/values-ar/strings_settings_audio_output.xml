@@ -1,4 +1,8 @@
 <resources>
+    <string name="settings_overview_volume_title">التحكم بمستوى الصوت</string>
+    <string name="settings_overview_media_volume">الوسائط</string>
+    <string name="settings_overview_navigation_volume">الملاحة</string>
+    <string name="settings_overview_call_volume">المكالمات</string>
     <string name="settings_carplay_media_volume">مستوى صوت الوسائط في CarPlay</string>
     <string name="settings_carplay_navigation_volume">مستوى صوت الملاحة في CarPlay</string>
     <string name="settings_nissan_navigation_hardware_volume">خرج ملاحة نيسان</string>

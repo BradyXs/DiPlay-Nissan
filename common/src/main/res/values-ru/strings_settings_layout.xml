@@ -4,6 +4,9 @@
     <string name="settings_overview_subtitle">Главное для удобной и надёжной поездки.</string>
     <string name="settings_your_setup">Ваша настройка</string>
     <string name="settings_quick_settings">Быстрые настройки</string>
+    <string name="settings_quick_auto_connect_hint">Подключаться автоматически при запуске.</string>
+    <string name="settings_quick_full_screen_hint">Скрывать системные панели.</string>
+    <string name="settings_quick_location_hint">Передавать геопозицию для навигации.</string>
     <string name="settings_display">Экран</string>
     <string name="settings_navigation">Навигация</string>
     <string name="settings_vehicle">Автомобиль</string>

@@ -4,6 +4,9 @@
     <string name="settings_overview_subtitle">Lo esencial para una conducción cómoda y fiable.</string>
     <string name="settings_your_setup">Tu configuración</string>
     <string name="settings_quick_settings">Ajustes rápidos</string>
+    <string name="settings_quick_auto_connect_hint">Conectar automáticamente al iniciar.</string>
+    <string name="settings_quick_full_screen_hint">Ocultar las barras del sistema.</string>
+    <string name="settings_quick_location_hint">Compartir ubicación para navegar.</string>
     <string name="settings_display">Pantalla</string>
     <string name="settings_navigation">Navegación</string>
     <string name="settings_vehicle">Vehículo</string>

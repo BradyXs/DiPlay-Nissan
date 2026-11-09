@@ -91,6 +91,7 @@ import com.shilapi.xcertplay.media.CarPlayTouchMapper
 import com.shilapi.xcertplay.media.CarPlayVideoLayout
 import com.shilapi.xcertplay.network.CarPlayVpnService
 import com.shilapi.xcertplay.orchestration.CarPlayController
+import com.shilapi.xcertplay.orchestration.CarPlayRecoveryAction
 import com.shilapi.xcertplay.orchestration.CarPlayRuntimeConfig
 import com.shilapi.xcertplay.network.WirelessStartupFailure
 import com.shilapi.xcertplay.network.WirelessStartupPolicy
@@ -370,6 +371,7 @@ class CarPlayHostActivity : ComponentActivity() {
     private var startAfterHandshakeReset = false
     private var restartGeneration = 0
     private var reconnectScheduled = false
+    private var forceWiredUsbReenumerationOnNextStart = false
     private var sessionLog: SessionLogFile? = null
     private var uiPageProbe: UiPageDrawProbe? = null
     private var uiActivityResumed = false
@@ -1940,6 +1942,12 @@ class CarPlayHostActivity : ComponentActivity() {
                 wifiRecoveryButton?.visibility = View.VISIBLE
             } else {
                 wifiRecoveryButton?.visibility = View.GONE
+                if (status.recoveryAction == CarPlayRecoveryAction.FORCE_WIRED_USB_REENUMERATION &&
+                    com.shilapi.xcertplay.host.BuildConfig.NISSAN_ANDROID_44_PROFILE
+                ) {
+                    forceWiredUsbReenumerationOnNextStart = true
+                    appendLog("Wired recovery queued: force one USB re-enumeration before reopening iAP2")
+                }
                 if (status.startupFailure != null) {
                     if (startupFailureGeneration == controllerGeneration) return@report
                     startupFailureGeneration = controllerGeneration
@@ -2028,6 +2036,12 @@ class CarPlayHostActivity : ComponentActivity() {
         }
         val controllerGeneration = restartGeneration
         val config = createRuntimeConfig()
+        val forceUsbReenumeration = !wirelessEnabled && forceWiredUsbReenumerationOnNextStart &&
+            com.shilapi.xcertplay.host.BuildConfig.NISSAN_ANDROID_44_PROFILE
+        if (forceUsbReenumeration) {
+            forceWiredUsbReenumerationOnNextStart = false
+            appendLog("Starting wired recovery with one forced USB re-enumeration")
+        }
         val configStartedAtNs = SystemClock.elapsedRealtimeNanos()
         val effectiveSize = size
         val airPlayConfig = createAirPlayConfig(effectiveSize)
@@ -2090,6 +2104,7 @@ class CarPlayHostActivity : ComponentActivity() {
             onCallMediaActiveChanged = renderer::setMediaSuppressedForCall,
             onNavigationUpdate = renderer::noteNavigationUpdate,
             onAirPlayDucking = renderer::noteAirPlayDucking,
+            forceWiredUsbReenumerationAtStart = forceUsbReenumeration,
         )
         controller = next
         CarPlayMediaKeys.attach(this, next)

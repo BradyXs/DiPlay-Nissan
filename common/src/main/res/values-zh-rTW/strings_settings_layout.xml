@@ -4,6 +4,9 @@
     <string name="settings_overview_subtitle">舒適、可靠駕駛的基本設定。</string>
     <string name="settings_your_setup">你的設定</string>
     <string name="settings_quick_settings">快速設定</string>
+    <string name="settings_quick_auto_connect_hint">啟動後自動連線</string>
+    <string name="settings_quick_full_screen_hint">隱藏系統列</string>
+    <string name="settings_quick_location_hint">為導航提供定位</string>
     <string name="settings_display">顯示</string>
     <string name="settings_navigation">導航</string>
     <string name="settings_vehicle">車輛</string>

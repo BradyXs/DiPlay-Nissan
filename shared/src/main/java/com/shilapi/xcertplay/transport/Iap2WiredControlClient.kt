@@ -69,6 +69,7 @@ class Iap2WiredControlClient(
         var forwardedFrames = 0
         var carPlayStartSessions = 0
         var startSessionNanos = 0L
+        var sameLinkRefreshSent = false
         var keptLinkAfterSilence = false
         // Issue #84/#61: the live loop previously had no dead-link detection — once the
         // iPhone went quiet, recv kept timing out and the UI sat on "控制通道运行中" forever.
@@ -81,13 +82,27 @@ class Iap2WiredControlClient(
             while (true) {
                 // Check even when the phone continuously sends iAP2 messages: a busy
                 // control channel must not hide a missing AirPlay session indefinitely.
-                if (carPlayStartSessions > 0 && !airPlayTcpArrived() &&
-                    System.nanoTime() - startSessionNanos >= WIRED_FIRST_TCP_MILLIS * NANOS_PER_MILLISECOND
-                ) {
-                    onProgress("iap2 wired no AirPlay session ${WIRED_FIRST_TCP_MILLIS}ms after carplay-start-session forwarded=$forwardedFrames starts=$carPlayStartSessions")
-                    return Iap2WiredControlResult(
-                        Iap2WiredControlTerminal.NO_AIRPLAY_TCP, stage, forwardedFrames, carPlayStartSessions,
-                    )
+                if (carPlayStartSessions > 0 && !airPlayTcpArrived()) {
+                    val sessionWaitMillis = (System.nanoTime() - startSessionNanos) / NANOS_PER_MILLISECOND
+                    if (!sameLinkRefreshSent && sessionWaitMillis >= WIRED_SAME_LINK_REFRESH_MILLIS) {
+                        // Keep a healthy USBMUX/iAP2/NCM/VPN stack and refresh the existing
+                        // StartSession once before escalating to USB re-enumeration. The same
+                        // 0x4301 message is already used for every phone availability event.
+                        send(carPlayStartSession(endpoint), deadlineNanos)
+                        carPlayStartSessions++
+                        sameLinkRefreshSent = true
+                        onProgress("iap2 tx=0x4301 carplay-start-session same-link-retry=1")
+                        continue
+                    }
+                    if (sessionWaitMillis >= WIRED_FIRST_TCP_MILLIS) {
+                        onProgress(
+                            "iap2 wired no AirPlay session ${WIRED_FIRST_TCP_MILLIS}ms after carplay-start-session " +
+                                "forwarded=$forwardedFrames starts=$carPlayStartSessions sameLinkRetry=$sameLinkRefreshSent",
+                        )
+                        return Iap2WiredControlResult(
+                            Iap2WiredControlTerminal.NO_AIRPLAY_TCP, stage, forwardedFrames, carPlayStartSessions,
+                        )
+                    }
                 }
                 val remaining = remainingMillis(deadlineNanos)
                 if (remaining == 0L) {
@@ -170,6 +185,7 @@ class Iap2WiredControlClient(
                         stage = Iap2WiredControlStage.CARPLAY_START_SENT
                         carPlayStartSessions++
                         if (startSessionNanos == 0L) startSessionNanos = System.nanoTime()
+                        else if (!airPlayTcpArrived()) sameLinkRefreshSent = true
                         onProgress("iap2 tx=0x4301 carplay-start-session")
                     }
 
@@ -212,6 +228,8 @@ class Iap2WiredControlClient(
         private const val PEER_SILENT_RESET_MILLIS = 90_000L
         /** No AirPlay TCP this long after StartSession: fail fast (issue #95). Mirrors wireless. */
         private const val WIRED_FIRST_TCP_MILLIS = 30_000L
+        /** Refresh a still-live iAP2 session once before rebuilding the wired USB stack. */
+        private const val WIRED_SAME_LINK_REFRESH_MILLIS = 12_000L
 
         /** Exact LIVI wired PowerSourceUpdate encoding: current and the charge-if-powered flag. */
         fun powerSourceUpdate(availableCurrentMilliAmps: Int): Iap2Frame =

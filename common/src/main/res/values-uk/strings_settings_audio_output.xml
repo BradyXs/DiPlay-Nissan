@@ -1,4 +1,8 @@
 <resources>
+    <string name="settings_overview_volume_title">Керування гучністю</string>
+    <string name="settings_overview_media_volume">Медіа</string>
+    <string name="settings_overview_navigation_volume">Навігація</string>
+    <string name="settings_overview_call_volume">Дзвінки</string>
     <string name="settings_carplay_media_volume">Гучність медіа CarPlay</string>
     <string name="settings_carplay_navigation_volume">Гучність навігації CarPlay</string>
     <string name="settings_nissan_navigation_hardware_volume">Вихід навігації Nissan</string>

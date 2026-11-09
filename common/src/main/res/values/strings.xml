@@ -329,6 +329,9 @@
     <string name="settings_overview_subtitle">The essentials for a comfortable, reliable drive.</string>
     <string name="settings_your_setup">Your setup</string>
     <string name="settings_quick_settings">Quick settings</string>
+    <string name="settings_quick_auto_connect_hint">Connect automatically at startup.</string>
+    <string name="settings_quick_full_screen_hint">Hide the system bars.</string>
+    <string name="settings_quick_location_hint">Provide location for navigation.</string>
     <string name="settings_display">Display</string>
     <string name="settings_navigation">Navigation</string>
     <string name="settings_vehicle">Vehicle</string>

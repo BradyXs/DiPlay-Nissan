@@ -1,4 +1,8 @@
 <resources>
+    <string name="settings_overview_volume_title">音量控制</string>
+    <string name="settings_overview_media_volume">媒體音</string>
+    <string name="settings_overview_navigation_volume">導航音</string>
+    <string name="settings_overview_call_volume">通話音</string>
     <string name="settings_carplay_media_volume">CarPlay 媒體音量</string>
     <string name="settings_carplay_navigation_volume">CarPlay 導航音量</string>
     <string name="settings_nissan_navigation_hardware_volume">日產導航通道音量</string>

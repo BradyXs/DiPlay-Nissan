@@ -138,8 +138,16 @@ sealed class CarPlayStatus {
     data object AttachingNetwork : CarPlayStatus()
     data object RunningControl : CarPlayStatus()
     data object ControlEnded : CarPlayStatus()
-    data class Failed(val message: String, val wifiResetRequired: Boolean = false,
-        val startupFailure: WirelessStartupFailure? = null) : CarPlayStatus()
+    data class Failed(
+        val message: String,
+        val wifiResetRequired: Boolean = false,
+        val startupFailure: WirelessStartupFailure? = null,
+        val recoveryAction: CarPlayRecoveryAction? = null,
+    ) : CarPlayStatus()
+}
+
+enum class CarPlayRecoveryAction {
+    FORCE_WIRED_USB_REENUMERATION,
 }
 
 internal fun isWirelessHandoffInProgress(
@@ -176,6 +184,7 @@ class CarPlayController(
     private val onCallMediaActiveChanged: (Boolean) -> Unit = {},
     private val onNavigationUpdate: () -> Unit = {},
     private val onAirPlayDucking: (Boolean) -> Unit = {},
+    private val forceWiredUsbReenumerationAtStart: Boolean = false,
 ) : Closeable {
     init {
         require(!config.locationReportingEnabled || locationProvider != null) {
@@ -222,6 +231,7 @@ class CarPlayController(
     @Volatile private var uiListener: AirPlaySessionListener? = listener
     @Volatile private var uiStatusReporter: ((CarPlayStatus) -> Unit)? = reportStatus
     private val permissionGrant = AtomicBoolean(false)
+    private val forcedUsbReenumerationPending = AtomicBoolean(forceWiredUsbReenumerationAtStart)
     private val availabilityPollGeneration = AtomicInteger(0)
     private var permissionPollGeneration = 0
     private var reenumerationAttempts = 0
@@ -1891,6 +1901,11 @@ class CarPlayController(
                     permissionPollGeneration++
                     when (phase) {
                         Phase.REENUMERATION, Phase.IPHONE -> {
+                            if (phase == Phase.IPHONE && forcedUsbReenumerationPending.compareAndSet(true, false)) {
+                                connectionDiagnostic("USB recovery action=force-reenumeration reason=no-airplay-tcp")
+                                beginReenumeration(result.device)
+                                return
+                            }
                             if (realSdkInt() < Build.VERSION_CODES.LOLLIPOP) {
                                 val attempts = reenumerationAttempts
                                 val permissionGeneration = permissionPollGeneration
@@ -2291,7 +2306,7 @@ class CarPlayController(
                 onIncoming = ::onRouteFrame,
                 onProgress = { message ->
                     debugLog("wired $message")
-                    if (message == "iap2 tx=0x4301 carplay-start-session") {
+                    if (message.startsWith("iap2 tx=0x4301 carplay-start-session")) {
                         vpnService?.sendUnsolicitedNeighborAdvertisement(force = true)
                     }
                 },
@@ -2313,7 +2328,12 @@ class CarPlayController(
                     Iap2WiredControlTerminal.PEER_SILENT ->
                         CarPlayStatus.Failed("Wired CarPlay peer silent; resetting link")
                     Iap2WiredControlTerminal.NO_AIRPLAY_TCP ->
-                        CarPlayStatus.Failed("No AirPlay TCP after CarPlay StartSession; resetting link")
+                        CarPlayStatus.Failed(
+                            "No AirPlay TCP after CarPlay StartSession; resetting the wired USB session",
+                            recoveryAction = if (nissanAndroid44Profile) {
+                                CarPlayRecoveryAction.FORCE_WIRED_USB_REENUMERATION
+                            } else null,
+                        )
                 },
             )
         } catch (error: Throwable) {

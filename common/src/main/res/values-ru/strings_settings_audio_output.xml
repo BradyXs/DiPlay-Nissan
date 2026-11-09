@@ -1,4 +1,8 @@
 <resources>
+    <string name="settings_overview_volume_title">Управление громкостью</string>
+    <string name="settings_overview_media_volume">Медиа</string>
+    <string name="settings_overview_navigation_volume">Навигация</string>
+    <string name="settings_overview_call_volume">Звонки</string>
     <string name="settings_carplay_media_volume">Громкость музыки CarPlay</string>
     <string name="settings_carplay_navigation_volume">Громкость навигации CarPlay</string>
     <string name="settings_nissan_navigation_hardware_volume">Выход навигации Nissan</string>

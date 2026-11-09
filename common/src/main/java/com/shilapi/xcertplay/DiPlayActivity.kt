@@ -895,63 +895,140 @@ class DiPlayActivity : ComponentActivity() {
 
     private fun settingsOverview(content: LinearLayout) {
         val buildStartedAtNs = SystemClock.elapsedRealtimeNanos()
-        if (!isExpandedSettingsLayout) {
-            settingsOverviewBuilder.pageTitle(content, getString(R.string.settings_overview),
-                getString(R.string.settings_overview_subtitle), expanded = false)
-        }
+        settingsOverviewBuilder.pageTitle(content, getString(R.string.settings_overview),
+            getString(R.string.settings_overview_subtitle), expanded = isExpandedSettingsLayout)
         val readiness = settingsReadinessPresenter.create(isExpandedSettingsLayout)
         refreshReadiness()
         val readinessBuiltAtNs = SystemClock.elapsedRealtimeNanos()
 
-        val destinations = listOf(
-            SettingsCategory.CONNECTION to R.string.settings_connection_summary,
-            SettingsCategory.DISPLAY to R.string.settings_display_summary,
-            SettingsCategory.AUDIO to R.string.settings_audio_summary,
-            SettingsCategory.NAVIGATION to R.string.settings_navigation_summary,
-            SettingsCategory.VEHICLE to R.string.settings_vehicle_summary,
-        )
-        val twoColumns = isExpandedSettingsLayout && resources.configuration.let {
-            SettingsLayoutPolicy.overviewHasTwoColumns(it.screenWidthDp, it.fontScale)
-        }
-        if (twoColumns) {
-            val actionNeeded = currentReadiness().needsAction
-            if (actionNeeded) content.addView(readiness,
-                LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(18) })
-            val columns = row().apply { gravity = Gravity.TOP }
-            val setup = column()
-            setup.addView(settingsOverviewBuilder.sectionHeading(R.string.settings_your_setup))
-            setup.addView(settingsOverviewBuilder.summaryGroup(destinations))
-            columns.addView(setup, LinearLayout.LayoutParams(0, -2, 1f))
-            columns.addView(space(16), LinearLayout.LayoutParams(dp(16), 1))
-            val quick = column()
-            quick.addView(settingsOverviewBuilder.sectionHeading(R.string.settings_quick_settings))
-            quick.addView(quickSettingsCard())
-            columns.addView(quick, LinearLayout.LayoutParams(0, -2, 1f))
-            content.addView(columns, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(18) })
-            if (!actionNeeded) content.addView(readiness,
-                LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(18) })
+        if (isExpandedSettingsLayout) {
+            content.addView(readiness, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(16) })
+            content.addView(settingsOverviewBuilder.sectionHeading(R.string.settings_quick_settings,
+                topPaddingDp = 0, bottomPaddingDp = 8))
+            content.addView(settingsOverviewBuilder.quickSettingsGrid(settingsOverviewQuickSettings()),
+                LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(16) })
+            if (nissanAndroid44Profile) {
+                content.addView(settingsOverviewBuilder.sectionHeading(
+                    R.string.settings_overview_volume_title, topPaddingDp = 0, bottomPaddingDp = 8))
+                content.addView(overviewVolumeCard(), LinearLayout.LayoutParams(-1, -2).apply {
+                    bottomMargin = dp(16)
+                })
+            }
+            val cardsBuiltAtNs = SystemClock.elapsedRealtimeNanos()
+            content.addView(settingsOverviewBuilder.overviewFooter(
+                languageValue = AppLocale.displayName(this, AppLocale.preference(this)),
+                version = version(),
+                onLanguage = { AppLocale.showPicker(this) },
+                onAbout = { page = "about"; render() },
+            ), LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(SETTINGS_BLOCK_GAP_DP) })
+            val buildFinishedAtNs = SystemClock.elapsedRealtimeNanos()
+            UiPageDiagnostics.log(
+                "UI_BUILD page=settings-overview " +
+                    "readinessMs=${(readinessBuiltAtNs - buildStartedAtNs) / 1_000_000L} " +
+                    "cardsMs=${(cardsBuiltAtNs - readinessBuiltAtNs) / 1_000_000L} " +
+                    "footerMs=${(buildFinishedAtNs - cardsBuiltAtNs) / 1_000_000L} " +
+                    "totalMs=${(buildFinishedAtNs - buildStartedAtNs) / 1_000_000L} thread=main",
+            )
         } else {
             content.addView(readiness, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(18) })
+            val destinations = listOf(
+                SettingsCategory.CONNECTION to R.string.settings_connection_summary,
+                SettingsCategory.DISPLAY to R.string.settings_display_summary,
+                SettingsCategory.AUDIO to R.string.settings_audio_summary,
+                SettingsCategory.NAVIGATION to R.string.settings_navigation_summary,
+                SettingsCategory.VEHICLE to R.string.settings_vehicle_summary,
+            )
             content.addView(settingsOverviewBuilder.sectionHeading(R.string.settings_your_setup))
             content.addView(settingsOverviewBuilder.summaryGroup(destinations))
             content.addView(settingsOverviewBuilder.sectionHeading(
                 R.string.settings_quick_settings, topPaddingDp = 10, bottomPaddingDp = 8))
             content.addView(quickSettingsCard(), LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(18) })
+            val cardsBuiltAtNs = SystemClock.elapsedRealtimeNanos()
+            content.addView(settingsOverviewBuilder.utilitiesCard(), LinearLayout.LayoutParams(-1, -2).apply {
+                bottomMargin = dp(SETTINGS_BLOCK_GAP_DP)
+            })
+            renderSections(content,
+                SettingsInformationArchitecture.sectionsByCategory.getValue(SettingsCategory.OVERVIEW))
+            val buildFinishedAtNs = SystemClock.elapsedRealtimeNanos()
+            UiPageDiagnostics.log(
+                "UI_BUILD page=settings-overview " +
+                    "readinessMs=${(readinessBuiltAtNs - buildStartedAtNs) / 1_000_000L} " +
+                    "cardsMs=${(cardsBuiltAtNs - readinessBuiltAtNs) / 1_000_000L} " +
+                    "footerMs=${(buildFinishedAtNs - cardsBuiltAtNs) / 1_000_000L} " +
+                    "totalMs=${(buildFinishedAtNs - buildStartedAtNs) / 1_000_000L} thread=main",
+            )
         }
+    }
 
-        val cardsBuiltAtNs = SystemClock.elapsedRealtimeNanos()
-        content.addView(settingsOverviewBuilder.utilitiesCard(), LinearLayout.LayoutParams(-1, -2).apply {
-            bottomMargin = dp(SETTINGS_BLOCK_GAP_DP)
-        })
-        renderSections(content, SettingsInformationArchitecture.sectionsByCategory.getValue(SettingsCategory.OVERVIEW))
-        val buildFinishedAtNs = SystemClock.elapsedRealtimeNanos()
-        UiPageDiagnostics.log(
-            "UI_BUILD page=settings-overview " +
-                "readinessMs=${(readinessBuiltAtNs - buildStartedAtNs) / 1_000_000L} " +
-                "cardsMs=${(cardsBuiltAtNs - readinessBuiltAtNs) / 1_000_000L} " +
-                "footerMs=${(buildFinishedAtNs - cardsBuiltAtNs) / 1_000_000L} " +
-                "totalMs=${(buildFinishedAtNs - buildStartedAtNs) / 1_000_000L} thread=main",
-        )
+    private fun settingsOverviewQuickSettings() = listOf(
+        DiPlaySettingsOverviewBuilder.QuickSettingItem(
+            icon = R.drawable.ic_dp_connection,
+            title = getString(R.string.connect_when_diplay_opens),
+            description = getString(R.string.settings_quick_auto_connect_hint),
+            checked = DiPlayPreferences.autoConnect(this),
+            onCheckedChange = { DiPlayPreferences.saveAutoConnect(this, it) },
+        ),
+        DiPlaySettingsOverviewBuilder.QuickSettingItem(
+            icon = R.drawable.ic_dp_display,
+            title = getString(R.string.carplay_night_mode),
+            description = nightModeLabels().getOrElse(
+                availableNightModes().indexOf(AirPlayPersistence.loadCarPlayNightMode(this)).coerceAtLeast(0),
+            ) { "" },
+            onClick = ::showOverviewNightModePicker,
+        ),
+        DiPlaySettingsOverviewBuilder.QuickSettingItem(
+            icon = R.drawable.ic_dp_display,
+            title = getString(R.string.full_screen),
+            description = getString(R.string.settings_quick_full_screen_hint),
+            checked = AirPlayPersistence.loadHideTopBar(this) &&
+                AirPlayPersistence.loadHideBottomBar(this),
+            onCheckedChange = { enabled ->
+                AirPlayPersistence.saveHideTopBar(this, enabled)
+                AirPlayPersistence.saveHideBottomBar(this, enabled)
+            },
+        ),
+        DiPlaySettingsOverviewBuilder.QuickSettingItem(
+            icon = R.drawable.ic_dp_navigation,
+            title = getString(R.string.report_location_to_iphone),
+            description = getString(R.string.settings_quick_location_hint),
+            checked = AirPlayPersistence.loadLocationReportingEnabled(this),
+            onCheckedChange = ::onLocationReportingChanged,
+        ),
+    )
+
+    private fun showOverviewNightModePicker(value: TextView) {
+        val modes = availableNightModes()
+        val labels = nightModeLabels()
+        val selected = modes.indexOf(AirPlayPersistence.loadCarPlayNightMode(this)).coerceAtLeast(0)
+        var pending = selected
+        AlertDialog.Builder(this)
+            .setTitle(getString(R.string.carplay_night_mode))
+            .setSingleChoiceItems(labels.toTypedArray(), selected) { _, which -> pending = which }
+            .setPositiveButton(getString(R.string.save)) { _, _ ->
+                if (pending != selected) {
+                    AirPlayPersistence.saveCarPlayNightMode(this, modes[pending])
+                    value.text = labels[pending]
+                }
+            }
+            .setNegativeButton(getString(R.string.cancel), null)
+            .show()
+    }
+
+    private fun overviewVolumeCard(): LinearLayout = card().apply {
+        setPadding(dp(12), dp(12), dp(12), dp(12))
+        audioCards.relativeVolumeRow(this, R.string.settings_overview_media_volume,
+            R.drawable.ic_dp_audio, AirPlayPersistence.loadMediaVolumePercent(this@DiPlayActivity),
+            apply = { applyCarPlayRelativeVolumes(media = it) },
+            save = { AirPlayPersistence.saveMediaVolumePercent(this@DiPlayActivity, it) })
+        audioCards.relativeVolumeRow(this, R.string.settings_overview_navigation_volume,
+            R.drawable.ic_dp_navigation, AirPlayPersistence.loadNavigationVolumePercent(this@DiPlayActivity),
+            apply = { applyCarPlayRelativeVolumes(navigation = it) },
+            save = { AirPlayPersistence.saveNavigationVolumePercent(this@DiPlayActivity, it) })
+        audioCards.relativeVolumeRow(this, R.string.settings_overview_call_volume,
+            R.drawable.ic_dp_audio, AirPlayPersistence.loadCallVolumePercent(this@DiPlayActivity),
+            bottomSpacingDp = 0,
+            apply = { applyCarPlayRelativeVolumes(call = it) },
+            save = { AirPlayPersistence.saveCallVolumePercent(this@DiPlayActivity, it) })
     }
 
     private fun currentReadiness() = SettingsReadiness.of(

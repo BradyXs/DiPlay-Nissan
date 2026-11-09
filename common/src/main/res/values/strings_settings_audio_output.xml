@@ -1,4 +1,8 @@
 <resources>
+    <string name="settings_overview_volume_title">Volume controls</string>
+    <string name="settings_overview_media_volume">Media</string>
+    <string name="settings_overview_navigation_volume">Navigation</string>
+    <string name="settings_overview_call_volume">Calls</string>
     <string name="settings_carplay_media_volume">CarPlay media volume</string>
     <string name="settings_carplay_navigation_volume">CarPlay navigation volume</string>
     <string name="settings_nissan_navigation_hardware_volume">Nissan navigation output</string>

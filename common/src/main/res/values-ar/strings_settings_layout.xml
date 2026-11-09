@@ -4,6 +4,9 @@
     <string name="settings_overview_subtitle">الأساسيات لقيادة مريحة وموثوقة.</string>
     <string name="settings_your_setup">إعدادك</string>
     <string name="settings_quick_settings">إعدادات سريعة</string>
+    <string name="settings_quick_auto_connect_hint">الاتصال تلقائيًا عند بدء التشغيل.</string>
+    <string name="settings_quick_full_screen_hint">إخفاء شريطي النظام.</string>
+    <string name="settings_quick_location_hint">توفير الموقع للملاحة.</string>
     <string name="settings_display">الشاشة</string>
     <string name="settings_navigation">الملاحة</string>
     <string name="settings_vehicle">السيارة</string>

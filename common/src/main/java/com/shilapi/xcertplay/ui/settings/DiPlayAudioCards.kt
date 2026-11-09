@@ -3,8 +3,11 @@ package com.shilapi.xcertplay.ui.settings
 import android.os.Handler
 import android.view.Gravity
 import android.view.KeyEvent
+import android.view.View
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.SeekBar
+import androidx.appcompat.content.res.AppCompatResources
 import com.shilapi.xcertplay.AirPlayPersistence
 import com.shilapi.xcertplay.CarPlayBackgroundSession
 import com.shilapi.xcertplay.CarPlayProgressStyle
@@ -127,6 +130,92 @@ internal class DiPlayAudioCards(
         // inside this dynamically built settings card on the Nissan API 19 build.
         parent.addView(slider, LinearLayout.LayoutParams(-1, dp(44)))
         parent.addView(space(12))
+    }
+
+    /** Compact overview control that keeps the same real-time path and preference as Audio settings. */
+    fun relativeVolumeRow(
+        parent: LinearLayout,
+        titleId: Int,
+        iconId: Int,
+        initial: Int,
+        bottomSpacingDp: Int = 8,
+        apply: (Int) -> Unit,
+        save: (Int) -> Unit,
+    ) = with(ui) {
+        val title = activity.getString(titleId)
+        var dragging = false
+        val row = LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            minimumHeight = dp(64)
+            setPadding(dp(12), 0, dp(12), 0)
+            background = rounded(DiPlayCardUi.BUTTON, DiPlayCardUi.BORDER)
+            contentDescription = title
+        }
+        val identity = LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            addView(ImageView(activity).apply {
+                setImageDrawable(AppCompatResources.getDrawable(activity, iconId)?.mutate())
+                setColorFilter(DiPlayCardUi.ACCENT)
+                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            }, LinearLayout.LayoutParams(dp(24), dp(24)).apply { marginEnd = dp(10) })
+            addView(label(title, 16, DiPlayCardUi.TEXT, true),
+                LinearLayout.LayoutParams(0, -1, 1f))
+        }
+        row.addView(identity, LinearLayout.LayoutParams(0, -1, .32f))
+        val value = label("${initial.coerceIn(0, 100)}%", 16, DiPlayCardUi.ACCENT, true).apply {
+            gravity = Gravity.CENTER
+        }
+        val slider = CarPlayProgressStyle.seekBar(activity).apply {
+            max = 100
+            progress = initial.coerceIn(0, 100)
+            contentDescription = title
+            isFocusableInTouchMode = true
+            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                private fun commit(percent: Int) {
+                    save(percent)
+                    log("Audio volume: $title percent=$percent active=${CarPlayBackgroundSession.active}")
+                }
+
+                override fun onProgressChanged(seekBar: SeekBar, progress: Int, fromUser: Boolean) {
+                    value.text = "$progress%"
+                    if (fromUser) {
+                        apply(progress)
+                        if (!dragging) commit(progress)
+                    }
+                }
+
+                override fun onStartTrackingTouch(seekBar: SeekBar) {
+                    dragging = true
+                    seekBar.requestFocus()
+                }
+
+                override fun onStopTrackingTouch(seekBar: SeekBar) {
+                    dragging = false
+                    commit(seekBar.progress)
+                }
+            })
+            setOnKeyListener { _, keyCode, event ->
+                if (keyCode != KeyEvent.KEYCODE_VOLUME_UP && keyCode != KeyEvent.KEYCODE_VOLUME_DOWN)
+                    return@setOnKeyListener false
+                if (event.action == KeyEvent.ACTION_DOWN) {
+                    progress = (progress + if (keyCode == KeyEvent.KEYCODE_VOLUME_UP) 5 else -5).coerceIn(0, 100)
+                    apply(progress)
+                    save(progress)
+                    log("Audio volume: $title percent=$progress active=${CarPlayBackgroundSession.active}")
+                }
+                true
+            }
+        }
+        row.addView(slider, LinearLayout.LayoutParams(0, dp(48), .56f).apply {
+            marginStart = dp(8)
+            marginEnd = dp(8)
+        })
+        row.addView(value, LinearLayout.LayoutParams(0, -1, .12f))
+        parent.addView(row, LinearLayout.LayoutParams(-1, dp(68)).apply {
+            bottomMargin = dp(bottomSpacingDp)
+        })
     }
 
     fun oemNavigationVolume(parent: LinearLayout) = oemVolume(parent,
