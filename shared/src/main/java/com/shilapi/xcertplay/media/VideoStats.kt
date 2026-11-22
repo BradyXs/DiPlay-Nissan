@@ -26,16 +26,19 @@ internal class VideoStats(
     private var decodeSamples = 0
     private val queueAgeMicros = IntArray(1024)
     private var queueAgeSamples = 0
+    private val frameAgeMicros = IntArray(1024)
+    private var frameAgeSamples = 0
     private val inputWaitMicros = IntArray(1024)
     private var inputWaitSamples = 0
     private var late = 0
     private var pacingDelayNanos = 0L
 
-    @Synchronized fun onReceived(size: Int, senderTimestampNs: Long = 0L) {
+    @Synchronized fun onReceived(size: Int, senderTimestampNs: Long = 0L, arrivalNs: Long = 0L) {
         val now = nanoTime()
-        val gap = now - lastArrivalNs
+        val arrival = arrivalNs.takeIf { it > 0L } ?: now
+        val gap = arrival - lastArrivalNs
         if (lastArrivalNs != 0L && gap < IDLE_GAP_NS) maxArrivalGapNs = maxOf(maxArrivalGapNs, gap)
-        lastArrivalNs = now
+        lastArrivalNs = arrival
         if (senderTimestampNs > 0L) {
             if (lastSenderTimestampNs > 0L) {
                 val senderGapNs = senderTimestampNs - lastSenderTimestampNs
@@ -49,7 +52,7 @@ internal class VideoStats(
             lastSenderTimestampNs = senderTimestampNs
         }
         // Touches only change the main screen; a second stream must not consume their samples.
-        val touchLatency = if (label.isEmpty()) TouchLatencyProbe.onFrame(now) else -1L
+        val touchLatency = if (label.isEmpty()) TouchLatencyProbe.onFrame(arrival) else -1L
         if (touchLatency >= 0) {
             touchSamples++
             touchLatencySumNs += touchLatency
@@ -77,6 +80,13 @@ internal class VideoStats(
         }
     }
 
+    /** Time from the screen message reaching the receiver to the decoder worker beginning it. */
+    @Synchronized fun onFrameAgeAtDecoder(ns: Long) {
+        if (frameAgeSamples < frameAgeMicros.size) {
+            frameAgeMicros[frameAgeSamples++] = (ns / 1000).coerceIn(0L, Int.MAX_VALUE.toLong()).toInt()
+        }
+    }
+
     /** Time spent waiting for a MediaCodec input slot, including output draining between polls. */
     @Synchronized fun onInputWait(ns: Long) {
         if (inputWaitSamples < inputWaitMicros.size) {
@@ -91,7 +101,7 @@ internal class VideoStats(
     @Synchronized fun onPacingDelay(ns: Long) { pacingDelayNanos = ns }
 
     private fun decodeSummary(): String {
-        if (decodeSamples == 0 && queueAgeSamples == 0 && inputWaitSamples == 0) return ""
+        if (decodeSamples == 0 && queueAgeSamples == 0 && frameAgeSamples == 0 && inputWaitSamples == 0) return ""
         fun summary(name: String, samples: Int, values: IntArray): String {
             if (samples == 0) return ""
             val sorted = values.copyOf(samples).also { it.sort() }
@@ -100,7 +110,8 @@ internal class VideoStats(
         }
         val delay = if (pacingDelayNanos > 0) " delay=%dms".format(pacingDelayNanos / 1_000_000) else ""
         val decodeStatus = if (decodeSamples > 0) " late=$late$delay" else ""
-        return summary("decoderQueueAge", queueAgeSamples, queueAgeMicros) +
+        return summary("frameAgeAtDecoder", frameAgeSamples, frameAgeMicros) +
+            summary("decoderQueueAge", queueAgeSamples, queueAgeMicros) +
             summary("codecInputWait", inputWaitSamples, inputWaitMicros) +
             summary("decode", decodeSamples, decodeMicros) +
             decodeStatus
@@ -127,7 +138,7 @@ internal class VideoStats(
         received = 0; codecOutput = 0; rendered = 0; recoveries = 0; bytes = 0; maxArrivalGapNs = 0
         maxSenderFrameGapNs = 0; senderFrameGapSamples = 0; senderTimestampNonIncreasing = 0
         touchSamples = 0; touchLatencySumNs = 0; maxTouchLatencyNs = 0
-        decodeSamples = 0; queueAgeSamples = 0; inputWaitSamples = 0; late = 0
+        decodeSamples = 0; queueAgeSamples = 0; frameAgeSamples = 0; inputWaitSamples = 0; late = 0
         return line
     }
 

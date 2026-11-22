@@ -741,5 +741,5 @@ sealed class IphoneUsbException(message: String, cause: Throwable? = null) : IOE
     class PermissionDenied(message: String, cause: Throwable? = null) : IphoneUsbException(message, cause)
     class DeviceUnavailable(message: String, cause: Throwable? = null) : IphoneUsbException(message, cause)
     class TimedOut(message: String, cause: Throwable? = null) : IphoneUsbException(message, cause)
-    class Protocol(message: String) : IphoneUsbException(message)
+    class Protocol(message: String, cause: Throwable? = null) : IphoneUsbException(message, cause)
 }

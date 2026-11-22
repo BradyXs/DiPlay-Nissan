@@ -129,6 +129,13 @@ import kotlin.math.roundToInt
  */
 class CarPlayHostActivity : ComponentActivity() {
     private var connectionPanel: View? = null
+    private var projectionRestorePending = false
+    private val projectionRestoreTimeout = Runnable {
+        if (!projectionRestorePending) return@Runnable
+        projectionRestorePending = false
+        appendLog("Projection restore grace period expired before a fresh video frame")
+        updateDebugOverlays()
+    }
     private var wifiRecoveryButton: View? = null
     private var reconnectAttempts = 0
     private val callKeyPresses = WheelKeyPresses()
@@ -170,6 +177,7 @@ class CarPlayHostActivity : ComponentActivity() {
             hardwareVersion = "1.0",
             carPlayUsbInterfaceNumber = 3,
             locationInformationEnabled = locationReportingEnabled,
+            laneGuidanceEnabled = com.shilapi.xcertplay.host.BuildConfig.NISSAN_ANDROID_44_PROFILE,
         ),
         label = "DiPlay",
         hostName = "diplay-" + DiPlayBootstrap.deviceId(airPlayIdentity).replace(":", "").lowercase(),
@@ -190,13 +198,7 @@ class CarPlayHostActivity : ComponentActivity() {
 
     private val vpnConsent =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-            awaitingVpnConsent = false
-            if (result.resultCode == RESULT_OK) {
-                vpnReady = true
-                maybeStartCarPlay()
-            } else {
-                setStatus(getString(R.string.vpn_consent_was_denied))
-            }
+            onVpnConsentResult(result.resultCode == RESULT_OK)
         }
     private val wirelessPermissions =
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
@@ -331,6 +333,8 @@ class CarPlayHostActivity : ComponentActivity() {
     private var manualHotspotChannel = 0
     private var manualHotspotSecurity = ManualHotspotSecurity.OPEN
     private var awaitingVpnConsent = false
+    private var vpnRecoveryPending = false
+    private var vpnAutomaticRecoveries = 0
     private var awaitingWirelessPermissions = false
     private var awaitingLocationPermission = false
     private var vpnReady = false
@@ -423,6 +427,10 @@ class CarPlayHostActivity : ComponentActivity() {
             }
             appendLog(if (existing === surface) "Texture surface reused" else "Texture surface created")
             attachSurface(surface)
+            if (CarPlayBackgroundSession.active && CarPlayBackgroundSession.hasRenderedVideoFrame) {
+                appendLog("Restored CarPlay display surface; requesting a fresh main-screen frame")
+                sink?.refreshPicture(SCREEN_TYPE_MAIN)
+            }
             updateVideoLayout(width, height)
             scheduleDisplaySize(width, height)
         }
@@ -454,8 +462,11 @@ class CarPlayHostActivity : ComponentActivity() {
             videoSurfaceOwner.replace(surface, releaseOnDetach = false)
             appendLog("SurfaceView video surface created valid=${surface.isValid}")
             attachSurface(surface)
-            // A still CarPlay screen sends no frames, so ask for one instead of showing the parked gap.
-            if (smoothVideo) sink?.refreshPicture(SCREEN_TYPE_MAIN)
+            // A still CarPlay screen sends no frames. Refresh after a surface restore so the
+            // existing projection reappears without showing the connection progress panel.
+            if (smoothVideo ||
+                (CarPlayBackgroundSession.active && CarPlayBackgroundSession.hasRenderedVideoFrame)
+            ) sink?.refreshPicture(SCREEN_TYPE_MAIN)
             videoView?.let { updateVideoLayout(it.width, it.height) }
         }
 
@@ -507,6 +518,7 @@ class CarPlayHostActivity : ComponentActivity() {
             AirPlayPersistence.saveWirelessEnabled(this, false)
         }
         initializeSessionLog()
+        beginProjectionRestore()
         lastConfiguration = Configuration(resources.configuration)
         darkMode = savedInstanceState?.getBoolean("carplay_night_active")
             ?: nightModeOrNull(resources.configuration.uiMode) ?: false
@@ -539,7 +551,11 @@ class CarPlayHostActivity : ComponentActivity() {
             this,
             object : OnBackPressedCallback(true) {
                 override fun handleOnBackPressed() {
-                    if (safeAreaEditorActive) closeSafeAreaEditor() else showDiPlayHome()
+                    when {
+                        safeAreaEditorActive -> closeSafeAreaEditor()
+                        CarPlayBackgroundSession.active -> returnToHeadUnitHome()
+                        else -> showDiPlayHome()
+                    }
                 }
             },
         )
@@ -560,6 +576,7 @@ class CarPlayHostActivity : ComponentActivity() {
         microphonePermissionResolved = microphoneAvailable
         if (reusedBackgroundSession) {
             updateDebugOverlays()
+            if (projectionRestorePending) sink?.refreshPicture(SCREEN_TYPE_MAIN)
         } else if (microphonePermissionResolved) {
             requestStartupPrerequisites()
         } else {
@@ -664,36 +681,90 @@ class CarPlayHostActivity : ComponentActivity() {
         ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) ==
             PackageManager.PERMISSION_GRANTED
 
+    private fun onVpnConsentResult(granted: Boolean) {
+        awaitingVpnConsent = false
+        if (!granted) {
+            vpnReady = false
+            vpnRecoveryPending = false
+            startupRetryStopped = true
+            startupRetryButton?.visibility = View.VISIBLE
+            setStatus(getString(R.string.vpn_consent_was_denied))
+            return
+        }
+        val prepared = try {
+            CarPlayVpnService.prepare(this) == null
+        } catch (error: Exception) {
+            appendLog("VPN preparation after consent failed class=${error.javaClass.simpleName}")
+            false
+        }
+        if (prepared) completeVpnPreparation() else showVpnUnavailable()
+    }
+
     private fun requestVpnConsent() {
         if (awaitingVpnConsent) return
         val consent = try {
             CarPlayVpnService.prepare(this)
         } catch (e: Exception) {
             Log.w(TAG, "CarPlayVpnService.prepare failed", e)
-            null
+            appendLog("VPN preparation failed class=${e.javaClass.simpleName}")
+            showVpnUnavailable()
+            return
         }
         if (consent == null) {
-            vpnReady = true
-            maybeStartCarPlay()
+            appendLog("VPN preparation state=ready")
+            completeVpnPreparation()
         } else {
             vpnReady = false
             awaitingVpnConsent = true
+            appendLog("VPN preparation state=consent-required")
             try {
                 vpnConsent.launch(consent)
             } catch (e: ActivityNotFoundException) {
                 Log.w(TAG, "VPN confirmation dialog not found on device (com.android.vpndialogs missing)", e)
-                appendLog("VPN dialog unavailable (com.android.vpndialogs missing), proceeding")
+                appendLog("VPN dialog unavailable (com.android.vpndialogs missing)")
                 awaitingVpnConsent = false
-                vpnReady = true
-                maybeStartCarPlay()
+                showVpnUnavailable()
             } catch (e: SecurityException) {
                 Log.w(TAG, "VPN confirmation dialog launch permission denied", e)
-                appendLog("VPN dialog launch denied, proceeding")
+                appendLog("VPN dialog launch denied")
                 awaitingVpnConsent = false
-                vpnReady = true
-                maybeStartCarPlay()
+                showVpnUnavailable()
             }
         }
+    }
+
+    private fun completeVpnPreparation() {
+        val restart = vpnRecoveryPending && controller != null
+        vpnRecoveryPending = false
+        vpnReady = true
+        startupRetryStopped = false
+        startupRetryButton?.visibility = View.GONE
+        if (restart) restartCarPlay(getString(R.string.connecting_to_your_iphone)) else maybeStartCarPlay()
+    }
+
+    private fun showVpnUnavailable() {
+        vpnReady = false
+        vpnRecoveryPending = false
+        startupRetryStopped = true
+        startupRetryButton?.visibility = View.VISIBLE
+        setStatus(getString(R.string.vpn_unavailable_retry))
+    }
+
+    private fun recoverVpnPreparation() {
+        if (awaitingVpnConsent || vpnRecoveryPending) return
+        vpnReady = false
+        startupRetryStopped = true
+        val failedController = controller
+        if (failedController != null) teardownExecutor.execute { failedController.close() }
+        if (vpnAutomaticRecoveries >= 1) {
+            appendLog("VPN preparation recovery stopped after one automatic retry")
+            showVpnUnavailable()
+            return
+        }
+        vpnAutomaticRecoveries++
+        vpnRecoveryPending = controller != null
+        appendLog("VPN establish returned null; rechecking preparation")
+        requestVpnConsent()
     }
 
     private fun requestWirelessPermissions() {
@@ -739,6 +810,10 @@ class CarPlayHostActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        if (beginProjectionRestore()) {
+            updateDebugOverlays()
+            sink?.refreshPicture(SCREEN_TYPE_MAIN)
+        }
         if (intent.getBooleanExtra(OPEN_SAFE_AREA_EDITOR_EXTRA, false)) {
             pendingSafeAreaEditor = true
             intent.removeExtra(OPEN_SAFE_AREA_EDITOR_EXTRA)
@@ -893,7 +968,7 @@ class CarPlayHostActivity : ComponentActivity() {
             val mediaButton = CarPlayMediaButton.forKeyCode(event.keyCode)
             if (mediaButton != null) {
                 if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
-                    val sent = controller?.sendMediaButton(mediaButton) == true
+                    val sent = controller?.sendMediaButton(mediaButton, userInitiated = true) == true
                     appendLog("Media key: window ${KeyEvent.keyCodeToString(event.keyCode)} sent=$sent")
                 }
                 return true
@@ -906,7 +981,11 @@ class CarPlayHostActivity : ComponentActivity() {
             }
             return true
         }
-        if (!safeAreaEditorActive && AndroidTvInputMode.shouldUseKnobAsPrimaryInput(this) &&
+        val nissanBackReturnsToHeadUnit =
+            com.shilapi.xcertplay.host.BuildConfig.NISSAN_ANDROID_44_PROFILE &&
+                event.keyCode == KeyEvent.KEYCODE_BACK && CarPlayBackgroundSession.active
+        if (!nissanBackReturnsToHeadUnit && !safeAreaEditorActive &&
+            AndroidTvInputMode.shouldUseKnobAsPrimaryInput(this) &&
             CarPlayRemoteKeys.dispatch(event, controller)) {
             if (event.repeatCount == 0) {
                 Log.d(
@@ -996,6 +1075,7 @@ class CarPlayHostActivity : ComponentActivity() {
         mainHandler.removeCallbacks(applyDisplaySize)
         mainHandler.removeCallbacks(expireOldLogLines)
         mainHandler.removeCallbacks(pollConfiguration)
+        mainHandler.removeCallbacks(projectionRestoreTimeout)
         videoSurfaceOwner.clear()
         hostRoot = null
         currentSurfaceTexture = null
@@ -1186,8 +1266,14 @@ class CarPlayHostActivity : ComponentActivity() {
                 if (!CarPlayBackgroundSession.isOwner(this@CarPlayHostActivity) ||
                     shuttingDown.get() || handshakeResetInProgress) return@setOnClickListener
                 startupRetryBudget.manualRetry()
-                startupRetryStopped = false
                 reconnectAttempts = 0
+                if (!wirelessEnabled && !vpnReady) {
+                    vpnAutomaticRecoveries = 0
+                    vpnRecoveryPending = controller != null
+                    requestVpnConsent()
+                    return@setOnClickListener
+                }
+                startupRetryStopped = false
                 visibility = View.GONE
                 restartCarPlay(getString(R.string.connecting_to_your_iphone))
             }
@@ -1748,6 +1834,11 @@ class CarPlayHostActivity : ComponentActivity() {
                 }
             },
             onMediaAudioChanged = CarPlayMediaKeys::onMediaAudioChanged,
+            onCarPlayAudioChannelChanged = { channel ->
+                if (controllerGeneration == restartGeneration && !shuttingDown.get()) {
+                    NissanVolumeSessionClient.onAudioChannelChanged(channel)
+                }
+            },
             onTelephonyAudioStarted = {
                 if (com.shilapi.xcertplay.host.BuildConfig.NISSAN_ANDROID_44_PROFILE &&
                     controllerGeneration == restartGeneration && !shuttingDown.get() &&
@@ -1790,10 +1881,11 @@ class CarPlayHostActivity : ComponentActivity() {
                         return@runOnUiThread
                     }
                     activeAirPlaySession = session
-                    CarPlayBackgroundSession.active = true
+                    CarPlayBackgroundSession.markSessionActive()
                     connectionProgress?.onSessionActive()
                     paintConnectionProgress()
                     reconnectAttempts = 0
+                    vpnAutomaticRecoveries = 0
                     logThemeState(ThemeModeDiagnostics.Source.SESSION_ACTIVE, resources.configuration)
                     syncAirPlayDarkMode(ThemeModeDiagnostics.Source.SESSION_ACTIVE)
                     appendLog("AirPlay session active")
@@ -1803,7 +1895,9 @@ class CarPlayHostActivity : ComponentActivity() {
             override fun onVideoFrameRendered(session: AirPlaySession) {
                 runOnUiThread {
                     if (controllerGeneration != restartGeneration || activeAirPlaySession !== session || shuttingDown.get()) return@runOnUiThread
+                    CarPlayBackgroundSession.markVideoFrameRendered()
                     visibleVideoFrameReleased = true
+                    completeProjectionRestore("video-frame-rendered")
                     connectionProgress?.onFirstFrame()
                     paintConnectionProgress()
                     updateDebugOverlays()
@@ -1837,7 +1931,8 @@ class CarPlayHostActivity : ComponentActivity() {
                     if (controllerGeneration != restartGeneration || startupRetryStopped) return@runOnUiThread
                     startupRetryBudget.disconnected()
                     activeAirPlaySession = null
-                    CarPlayBackgroundSession.active = false
+                    CarPlayBackgroundSession.markSessionInactive()
+                    completeProjectionRestore("session-ended")
                     activeScreenStreamTypes.clear()
                     visibleVideoFrameReleased = false
                     resetConnectionProgress()
@@ -1852,7 +1947,8 @@ class CarPlayHostActivity : ComponentActivity() {
                     if (controllerGeneration != restartGeneration || shuttingDown.get()) return@runOnUiThread
                     startupRetryStopped = true
                     activeAirPlaySession = null
-                    CarPlayBackgroundSession.active = false
+                    CarPlayBackgroundSession.markSessionInactive()
+                    completeProjectionRestore("wired-disconnected")
                     activeScreenStreamTypes.clear()
                     visibleVideoFrameReleased = false
                     appendLog("Wired CarPlay disconnected: $reason")
@@ -1866,6 +1962,8 @@ class CarPlayHostActivity : ComponentActivity() {
                 runOnUiThread {
                     if (controllerGeneration != restartGeneration || startupRetryStopped) return@runOnUiThread
                     startupRetryBudget.disconnected()
+                    CarPlayBackgroundSession.markSessionInactive()
+                    completeProjectionRestore("transport-error")
                     activeScreenStreamTypes.clear()
                     visibleVideoFrameReleased = false
                     resetConnectionProgress()
@@ -1942,6 +2040,10 @@ class CarPlayHostActivity : ComponentActivity() {
                 wifiRecoveryButton?.visibility = View.VISIBLE
             } else {
                 wifiRecoveryButton?.visibility = View.GONE
+                if (status.recoveryAction == CarPlayRecoveryAction.RECHECK_WIRED_VPN_PREPARATION && !wirelessEnabled) {
+                    recoverVpnPreparation()
+                    return@report
+                }
                 if (status.recoveryAction == CarPlayRecoveryAction.FORCE_WIRED_USB_REENUMERATION &&
                     com.shilapi.xcertplay.host.BuildConfig.NISSAN_ANDROID_44_PROFILE
                 ) {
@@ -2079,6 +2181,7 @@ class CarPlayHostActivity : ComponentActivity() {
             videoHeight = airPlayConfig.main.heightPixels,
             controllerGeneration = controllerGeneration,
         )
+        CarPlayBackgroundSession.markSessionInactive()
         sink = renderer
         currentSurface?.let(::attachSurface)
         val media = createMediaEngine(renderer)
@@ -2104,6 +2207,7 @@ class CarPlayHostActivity : ComponentActivity() {
             onCallMediaActiveChanged = renderer::setMediaSuppressedForCall,
             onNavigationUpdate = renderer::noteNavigationUpdate,
             onAirPlayDucking = renderer::noteAirPlayDucking,
+            onAirPlayDuckSessionReset = renderer::resetAirPlayDuckSession,
             forceWiredUsbReenumerationAtStart = forceUsbReenumeration,
         )
         controller = next
@@ -2304,7 +2408,7 @@ class CarPlayHostActivity : ComponentActivity() {
     }
 
     private fun maybeStartCarPlay() {
-        if (shuttingDown.get()) return
+        if (shuttingDown.get() || startupRetryStopped) return
         if (CarPlayBackgroundSession.hasSession() && !CarPlayBackgroundSession.isOwner(this)) {
             if (!adoptBackgroundSession()) mainHandler.postDelayed({ maybeStartCarPlay() }, 500)
             return
@@ -2410,12 +2514,19 @@ class CarPlayHostActivity : ComponentActivity() {
         if (!CarPlayBackgroundSession.isOwner(this)) return
         if (shuttingDown.get() || handshakeResetInProgress || startupRetryStopped) return
         if (reconnectScheduled) return
-        val startupDelay = if (startupFailure != null && startupFailure != WirelessStartupFailure.HOTSPOT_CONFIGURATION)
+        if (com.shilapi.xcertplay.host.BuildConfig.NISSAN_ANDROID_44_PROFILE) {
+            controller?.takeIf { !it.isWirelessSession() }?.preserveNissanHfpGateForReconnect()
+        }
+        val terminalHotspotFailure = startupFailure == WirelessStartupFailure.HOTSPOT_CONFIGURATION ||
+            startupFailure == WirelessStartupFailure.HOTSPOT_CONTROL_UNAVAILABLE
+        val startupDelay = if (startupFailure != null && !terminalHotspotFailure)
             startupRetryBudget.nextDelayMillis() else null
         if (startupFailure != null && startupDelay == null) {
             startupRetryStopped = true
             startupRetryButton?.visibility = View.VISIBLE
-            setConnectionStage(if (startupFailure == WirelessStartupFailure.HOTSPOT_CONFIGURATION) reason
+            setConnectionStage(if (startupFailure == WirelessStartupFailure.HOTSPOT_CONTROL_UNAVAILABLE)
+                getString(R.string.hotspot_auto_start_unavailable)
+                else if (startupFailure == WirelessStartupFailure.HOTSPOT_CONFIGURATION) reason
                 else "$reason\n${getString(R.string.wireless_startup_retries_exhausted)}")
             appendLog("wireless startup recovery stopped generation=$restartGeneration reason=$startupFailure retries=${startupRetryBudget.retries}")
             return
@@ -2465,7 +2576,7 @@ class CarPlayHostActivity : ComponentActivity() {
         handshakeResetInProgress = true
         val oldController = controller
         val oldSink = sink
-        CarPlayMediaKeys.detach(oldController)
+        CarPlayMediaKeys.detach(oldController, preservePlaybackForReconnect = true)
         CarPlayBackgroundSession.clear(oldController, keepOwner = true)
         controller = null
         oldSink?.let(retiringSinks::add)
@@ -2519,6 +2630,16 @@ class CarPlayHostActivity : ComponentActivity() {
             .addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT))
     }
 
+    /** Leave the projection for the vehicle's launcher while keeping its session alive in background. */
+    private fun returnToHeadUnitHome() {
+        controller?.sendTouch(emptyList())
+        appendLog(
+            "Navigation: Android Back returned to head-unit home; " +
+                "active=${CarPlayBackgroundSession.active} sessionRetained=${CarPlayBackgroundSession.hasSession()}",
+        )
+        startActivity(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME))
+    }
+
     /** Keep a timed-out sink visible to surface teardown until its codecs have actually been released. */
     private fun closeRetiringSink(owner: AndroidMediaSink) {
         owner.close()
@@ -2530,6 +2651,8 @@ class CarPlayHostActivity : ComponentActivity() {
 
     private fun shutdown(terminateProcess: Boolean, reason: String, completion: () -> Unit = {}) {
         if (!shuttingDown.compareAndSet(false, true)) { completion(); return }
+        completeProjectionRestore("shutdown")
+        mainHandler.removeCallbacks(projectionRestoreTimeout)
         startupRetryBudget.disconnected()
         restartGeneration += 1
         mainHandler.removeCallbacks(applyDisplaySize)
@@ -2774,8 +2897,36 @@ class CarPlayHostActivity : ComponentActivity() {
 
     private fun updateDebugOverlays() {
         statusScrollView?.visibility = View.GONE
-        connectionPanel?.visibility = if (activeScreenStreamTypes.isEmpty() || !visibleVideoFrameReleased) View.VISIBLE else View.GONE
+        val returningToRenderedSession =
+            projectionRestorePending ||
+                (CarPlayBackgroundSession.active && CarPlayBackgroundSession.hasRenderedVideoFrame)
+        connectionPanel?.visibility = when {
+            returningToRenderedSession -> View.GONE
+            activeScreenStreamTypes.isEmpty() || !visibleVideoFrameReleased -> View.VISIBLE
+            else -> View.GONE
+        }
         updateWaitingGlowAnimation()
+    }
+
+    /** Keep the existing projection surface in front while its host Activity is brought forward. */
+    private fun beginProjectionRestore(): Boolean {
+        val requested = intent.getBooleanExtra(RESTORE_PROJECTION_EXTRA, false)
+        intent.removeExtra(RESTORE_PROJECTION_EXTRA)
+        if (!requested || !CarPlayBackgroundSession.hasSession() ||
+            !CarPlayBackgroundSession.hasRenderedVideoFrame
+        ) return false
+        projectionRestorePending = true
+        mainHandler.removeCallbacks(projectionRestoreTimeout)
+        mainHandler.postDelayed(projectionRestoreTimeout, PROJECTION_RESTORE_GRACE_MILLIS)
+        appendLog("Restoring existing CarPlay projection before showing connection progress")
+        return true
+    }
+
+    private fun completeProjectionRestore(reason: String) {
+        if (!projectionRestorePending) return
+        projectionRestorePending = false
+        mainHandler.removeCallbacks(projectionRestoreTimeout)
+        appendLog("Projection restore completed: $reason")
     }
 
     private fun updateWaitingGlowAnimation() {
@@ -2952,6 +3103,7 @@ class CarPlayHostActivity : ComponentActivity() {
         CarPlayStatus.ControlEnded -> getString(R.string.carplay_control_window_ended)
         is CarPlayStatus.Failed -> when (startupFailure) {
             WirelessStartupFailure.HOTSPOT_NOT_READY -> getString(R.string.hotspot_network_not_ready)
+            WirelessStartupFailure.HOTSPOT_CONTROL_UNAVAILABLE -> getString(R.string.hotspot_auto_start_unavailable)
             WirelessStartupFailure.FIRST_TCP_TIMEOUT -> getString(R.string.first_tcp_timeout)
             WirelessStartupFailure.SESSION_AFTER_TCP_TIMEOUT -> getString(R.string.airplay_session_after_tcp_timeout)
             else -> getString(R.string.status_failed, message)
@@ -2966,6 +3118,7 @@ class CarPlayHostActivity : ComponentActivity() {
         // this budget when a codec is still busy.
         const val SINK_RELEASE_WAIT_MILLIS = 2_000L
         private const val CENTER_MAP_IDLE_MILLIS = 3_000L // a reconnect is quicker; a session end is not
+        private const val PROJECTION_RESTORE_GRACE_MILLIS = 2_500L
         const val LOG_RETENTION_MILLIS = 5 * 60_000L
         const val DISPLAY_CHANGE_DEBOUNCE_MILLIS = 500L
         const val CONFIGURATION_POLL_INTERVAL_MILLIS = 2_000L
@@ -3015,6 +3168,8 @@ internal data class CarPlaySessionDisplay(
 /** Process-local hand-off for keeping the CarPlay session alive while no Activity is visible. */
 internal object CarPlayBackgroundSession {
     @Volatile var active = false
+    @Volatile var hasRenderedVideoFrame = false
+        private set
     private var stopAction: (((() -> Unit)) -> Unit)? = null
     private var stopping = false
     private var owner: Any? = null
@@ -3054,6 +3209,23 @@ internal object CarPlayBackgroundSession {
     private var display: CarPlaySessionDisplay? = null
 
     @Synchronized
+    fun markSessionActive() {
+        if (!active) hasRenderedVideoFrame = false
+        active = true
+    }
+
+    @Synchronized
+    fun markSessionInactive() {
+        active = false
+        hasRenderedVideoFrame = false
+    }
+
+    @Synchronized
+    fun markVideoFrameRendered() {
+        hasRenderedVideoFrame = true
+    }
+
+    @Synchronized
     fun snapshot(): Snapshot? {
         val currentController = controller ?: return null
         val currentSink = sink ?: return null
@@ -3079,7 +3251,7 @@ internal object CarPlayBackgroundSession {
         controller = null
         sink = null
         if (!keepOwner) { stopAction = null; owner = null }
-        active = false
+        markSessionInactive()
         width = 0
         height = 0
         display = null

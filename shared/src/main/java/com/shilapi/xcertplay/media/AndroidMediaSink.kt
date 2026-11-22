@@ -61,6 +61,8 @@ internal class AudioFocusCoordinator(
     private var request: Any? = null
     private var requestedChannel: AudioChannel? = null
     private var mediaVolume = FULL_VOLUME
+    /** Prevent our navigation focus request from applying a second duck to our own media track. */
+    private var navigationPromptOwnsFocus = false
     private var closed = false
     private var focusGeneration = 0L
     private var currentListener = listenerFor(focusGeneration)
@@ -93,7 +95,13 @@ internal class AudioFocusCoordinator(
             }
             runCatching { report("Audio: focus change=$change activeTracks=${active.size}") }
             when (change) {
-                AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> setMediaVolume(DUCKED_VOLUME)
+                AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
+                    if (navigationPromptOwnsFocus) {
+                        runCatching { report("Audio: focus duck callback ignored; navigation prompt already ducks DiPlay media") }
+                    } else {
+                        setMediaVolume(DUCKED_VOLUME)
+                    }
+                }
                 AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
                     if (muteMediaOnTransientLoss) {
                         // This reports a temporary Android focus owner, not a confirmed call.
@@ -127,6 +135,11 @@ internal class AudioFocusCoordinator(
         entry.baseVolume = volume.coerceIn(0f, FULL_VOLUME)
         applyTrackVolume(track, entry)
         return true
+    }
+
+    @Synchronized
+    fun setNavigationPromptOwnsFocus(ownsFocus: Boolean) {
+        navigationPromptOwnsFocus = ownsFocus
     }
 
     fun onExternalFocusChange(change: Int) {
@@ -206,6 +219,169 @@ internal class AudioFocusCoordinator(
     }
 }
 
+/** Holds duckable system focus for each CarPlay navigation prompt. Local media gain remains the fallback. */
+internal class NavigationPromptFocus(
+    context: Context?,
+    private val report: (String) -> Unit = {},
+    private val onFocusHeldChanged: (Boolean) -> Unit = {},
+    private val releaseDelayMillis: Long = RELEASE_DELAY_MILLIS,
+    private val timeoutMillis: Long = TIMEOUT_MILLIS,
+) {
+    private val manager = context?.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+    private val handler = Handler(Looper.getMainLooper())
+    private val listener = AudioManager.OnAudioFocusChangeListener { change ->
+        runCatching { report("Audio: navigation focus callback change=$change held=$held") }
+    }
+    private var request: Any? = null
+    @Volatile private var held = false
+    private var closed = false
+    private var pendingRelease: Runnable? = null
+    private var pendingTimeout: Runnable? = null
+
+    @Synchronized
+    fun onDuck() {
+        if (closed) return
+        cancelRelease()
+        if (!held) requestFocus()
+        if (held) scheduleTimeout()
+    }
+
+    @Synchronized
+    fun onUnduck() {
+        if (closed || !held) return
+        pendingTimeout?.let(handler::removeCallbacks)
+        pendingTimeout = null
+        scheduleRelease("unduck", releaseDelayMillis)
+    }
+
+    @Synchronized
+    fun reset() {
+        if (!held) {
+            cancelPending()
+            return
+        }
+        release("session-reset")
+    }
+
+    @Synchronized
+    fun close() {
+        if (closed) return
+        closed = true
+        if (held) release("closed") else cancelPending()
+    }
+
+    private fun requestFocus() {
+        val audioManager = manager ?: run {
+            runCatching { report("Audio: navigation focus request unavailable audioManager=missing") }
+            return
+        }
+        val modernRequest = if (Build.VERSION.SDK_INT >= 26) {
+            runCatching { buildModernRequest() }.getOrNull()
+        } else null
+        val result = runCatching {
+            if (Build.VERSION.SDK_INT >= 26 && modernRequest != null) {
+                audioManager.requestAudioFocus(modernRequest as AudioFocusRequest)
+            } else {
+                @Suppress("DEPRECATION")
+                audioManager.requestAudioFocus(
+                    listener,
+                    AudioManager.STREAM_MUSIC,
+                    AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK,
+                )
+            }
+        }.getOrDefault(AudioManager.AUDIOFOCUS_REQUEST_FAILED)
+        held = result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+        if (held) {
+            request = if (Build.VERSION.SDK_INT >= 26 && modernRequest != null) modernRequest else listener
+            onFocusHeldChanged(true)
+        } else {
+            if (Build.VERSION.SDK_INT >= 26 && modernRequest != null) {
+                runCatching { audioManager.abandonAudioFocusRequest(modernRequest as AudioFocusRequest) }
+            }
+            request = null
+        }
+        runCatching {
+            report("Audio: navigation focus requested usage=${if (Build.VERSION.SDK_INT >= 26) "ASSISTANCE_NAVIGATION_GUIDANCE" else "legacy"} " +
+                "legacyStream=${AudioManager.STREAM_MUSIC} gain=${AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK} " +
+                "result=$result held=$held")
+        }
+    }
+
+    @RequiresApi(26)
+    // Keep the API 26 type out of this method's signature so API 19 Dalvik can verify the class.
+    private fun buildModernRequest(): Any? = AudioFocusRequest.Builder(
+        AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK,
+    ).setAudioAttributes(
+        AudioAttributes.Builder()
+            .setUsage(AudioAttributes.USAGE_ASSISTANCE_NAVIGATION_GUIDANCE)
+            .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+            .build(),
+    ).setOnAudioFocusChangeListener(listener, handler).build()
+
+    private fun scheduleTimeout() {
+        pendingTimeout?.let(handler::removeCallbacks)
+        lateinit var task: Runnable
+        task = Runnable {
+            synchronized(this) {
+                if (pendingTimeout === task) {
+                    pendingTimeout = null
+                    scheduleRelease("timeout", releaseDelayMillis)
+                    runCatching { report("Audio: navigation focus timeout after ${timeoutMillis}ms") }
+                }
+            }
+        }
+        pendingTimeout = task
+        handler.postDelayed(task, timeoutMillis)
+    }
+
+    private fun scheduleRelease(reason: String, delayMillis: Long) {
+        cancelRelease()
+        lateinit var task: Runnable
+        task = Runnable {
+            synchronized(this) {
+                if (pendingRelease === task) release(reason)
+            }
+        }
+        pendingRelease = task
+        handler.postDelayed(task, delayMillis)
+    }
+
+    private fun release(reason: String) {
+        cancelPending()
+        if (!held) return
+        held = false
+        val audioManager = manager
+        val result = runCatching {
+            if (audioManager == null) null
+            else if (Build.VERSION.SDK_INT >= 26 && request is AudioFocusRequest) {
+                audioManager.abandonAudioFocusRequest(request as AudioFocusRequest)
+            } else {
+                @Suppress("DEPRECATION")
+                audioManager.abandonAudioFocus(listener)
+            }
+        }.getOrNull()
+        request = null
+        onFocusHeldChanged(false)
+        runCatching { report("Audio: navigation focus released reason=$reason result=$result") }
+    }
+
+    private fun cancelRelease() {
+        pendingRelease?.let(handler::removeCallbacks)
+        pendingRelease = null
+    }
+
+    private fun cancelPending() {
+        cancelRelease()
+        pendingTimeout?.let(handler::removeCallbacks)
+        pendingTimeout = null
+    }
+
+    private companion object {
+        const val RELEASE_DELAY_MILLIS = 1_000L
+        const val TIMEOUT_MILLIS = 30_000L
+    }
+}
+
 /**
  * Android rendering backend for the CarPlay media engine. Video frames are
  * decoded with MediaCodec onto a Surface; audio streams are decoded to PCM and
@@ -235,6 +411,8 @@ class AndroidMediaSink(
     private val onAudioDiagnostic: (String) -> Unit = {},
     /** True while any music ("media") audio stream is running; called from media threads. */
     private val onMediaAudioChanged: (Boolean) -> Unit = {},
+    /** Called on audio threads whenever the selected CarPlay audio channel changes. */
+    private val onCarPlayAudioChannelChanged: (String) -> Unit = {},
     /** Notify the host when a telephony audio stream starts. */
     private val onTelephonyAudioStarted: () -> Unit = {},
     /** Opt-in call echo cancellation, replacing a controllable platform canceller while available. */
@@ -268,13 +446,24 @@ class AndroidMediaSink(
     private val navigationDuckHandler = if (duckMediaDuringNavigation) Handler(Looper.getMainLooper()) else null
     private val guidanceAudio = NissanGuidanceAudio()
     private val activeGuidanceAudioIds = ConcurrentHashMap.newKeySet<AudioStreamId>()
+    /** Stream-lifetime fallback for legacy navigation audio; Alternate Audio uses prompt commands. */
+    private val fallbackNavigationDuckIds = ConcurrentHashMap.newKeySet<AudioStreamId>()
     private val confirmedGuidanceAudioIds = ConcurrentHashMap.newKeySet<AudioStreamId>()
     private val defaultNavigationAudioIds = ConcurrentHashMap.newKeySet<AudioStreamId>()
+    /** Once CarPlay sends prompt boundaries, those boundaries override stream-lifetime fallback ducking. */
+    @Volatile private var airPlayDuckSignalSeen = false
     @Volatile private var audioClosed = false
     private val releaseNavigationDuck = Runnable {
-        if (!audioClosed && activeGuidanceAudioIds.isEmpty()) {
+        if (!audioClosed && (airPlayDuckSignalSeen || fallbackNavigationDuckIds.isEmpty())) {
             setNavigationDucking(false)
         }
+    }
+    private val expireNavigationDuck = Runnable {
+        if (audioClosed || !airPlayDuckSignalSeen || !guidanceAudio.duckRequested()) return@Runnable
+        guidanceAudio.onAirPlayDuckingChanged(false)
+        runCatching { onAudioDiagnostic("Audio: navigation duck source=airplay state=timeout") }
+        scheduleNavigationDuckRelease("timeout", NAVIGATION_DUCK_RELEASE_DELAY_MILLIS)
+        navigationPromptFocus.onUnduck()
     }
 
     fun noteNavigationUpdate() {
@@ -283,8 +472,33 @@ class AndroidMediaSink(
     }
 
     fun noteAirPlayDucking(active: Boolean) {
+        if (audioClosed) return
+        airPlayDuckSignalSeen = true
         guidanceAudio.onAirPlayDuckingChanged(active)
+        navigationDuckHandler?.removeCallbacks(expireNavigationDuck)
+        if (active) {
+            if (duckMediaDuringNavigation) navigationPromptFocus.onDuck()
+            navigationDuckHandler?.removeCallbacks(releaseNavigationDuck)
+            setNavigationDucking(true)
+            navigationDuckHandler?.postDelayed(expireNavigationDuck, NAVIGATION_DUCK_TIMEOUT_MILLIS)
+            runCatching { onAudioDiagnostic("Audio: navigation duck source=airplay state=active timeoutMs=$NAVIGATION_DUCK_TIMEOUT_MILLIS") }
+        } else {
+            if (duckMediaDuringNavigation) navigationPromptFocus.onUnduck()
+            scheduleNavigationDuckRelease("unduck", NAVIGATION_DUCK_RELEASE_DELAY_MILLIS)
+            runCatching { onAudioDiagnostic("Audio: navigation duck source=airplay state=inactive tailMs=$NAVIGATION_DUCK_RELEASE_DELAY_MILLIS") }
+        }
         refreshDefaultNavigationGuidance("airplay")
+    }
+
+    /** Reset prompt state at an AirPlay session boundary so the next phone starts in fallback mode. */
+    fun resetAirPlayDuckSession() {
+        navigationPromptFocus.reset()
+        guidanceAudio.onAirPlayDuckingChanged(false)
+        airPlayDuckSignalSeen = false
+        navigationDuckHandler?.removeCallbacks(releaseNavigationDuck)
+        navigationDuckHandler?.removeCallbacks(expireNavigationDuck)
+        setNavigationDucking(false)
+        runCatching { onAudioDiagnostic("Audio: navigation duck source=airplay state=session-reset") }
     }
 
     private fun refreshDefaultNavigationGuidance(source: String) {
@@ -300,10 +514,20 @@ class AndroidMediaSink(
             if (streamGuidance) {
                 confirmedGuidanceAudioIds.add(id)
                 changed = activeGuidanceAudioIds.add(id) || changed
+                if (id !in fallbackNavigationDuckIds) {
+                    fallbackNavigationDuckIds.add(id)
+                    changed = true
+                }
             }
-            else changed = activeGuidanceAudioIds.remove(id) || changed
+            else {
+                changed = activeGuidanceAudioIds.remove(id) || changed
+                changed = fallbackNavigationDuckIds.remove(id) || changed
+            }
         }
-        if (changed) refreshNavigationDucking()
+        if (changed) {
+            refreshNavigationDucking()
+            notifyCarPlayAudioChannelChanged()
+        }
         if (changed || source == "airplay") runCatching { onAudioDiagnostic(
             "Audio: guidance signal source=$source routeUpdateAgeMs=${guidanceAudio.updateAgeMillis(now) ?: "none"} " +
                 "airPlayDuck=${guidanceAudio.duckRequested()} defaultStreams=${defaultNavigationAudioIds.size} " +
@@ -333,6 +557,11 @@ class AndroidMediaSink(
         audioFocusEnabled,
         audioFocusAutoYield,
         onAudioDiagnostic,
+    )
+    private val navigationPromptFocus = NavigationPromptFocus(
+        appContext,
+        report = onAudioDiagnostic,
+        onFocusHeldChanged = audioFocusCoordinator::setNavigationPromptOwnsFocus,
     )
 
     /** The media-key session may own Android's current focus request for this same sink. */
@@ -690,15 +919,35 @@ class AndroidMediaSink(
             navigationStreamType,
         ).channel
         activeCarPlayAudioChannels[id] = channel
-        if (channel == AudioChannel.NAVIGATION && format.audioType.equals("default", ignoreCase = true)) {
+        val isAlternateAudio = format.payloadType == AudioChannelMapper.STREAM_TYPE_ALT_AUDIO
+        if (channel == AudioChannel.NAVIGATION && !isAlternateAudio &&
+            format.audioType.equals("default", ignoreCase = true)
+        ) {
             defaultNavigationAudioIds.add(id)
         }
         val now = SystemClock.elapsedRealtime()
-        val guidance = (!duckMediaDuringNavigation && channel == AudioChannel.NAVIGATION) ||
+        // Stream 101 identifies the navigation route, but it can outlive an individual prompt.
+        // Use duckAudio/unduckAudio for its prompt boundaries; keep legacy stream fallback for
+        // non-Alternate Audio navigation that has no explicit prompt event.
+        val guidance = isAlternateAudio ||
+            (!duckMediaDuringNavigation && channel == AudioChannel.NAVIGATION) ||
             guidanceAudio.isGuidance(format.audioType, channel, now)
         if (guidance && id in defaultNavigationAudioIds) confirmedGuidanceAudioIds.add(id)
         if (guidance) activeGuidanceAudioIds.add(id) else activeGuidanceAudioIds.remove(id)
-        if (duckMediaDuringNavigation && channel == AudioChannel.NAVIGATION) {
+        if (guidance && !isAlternateAudio && channel == AudioChannel.NAVIGATION) {
+            fallbackNavigationDuckIds.add(id)
+        } else {
+            fallbackNavigationDuckIds.remove(id)
+        }
+        if (isAlternateAudio) {
+            runCatching { onAudioDiagnostic(
+                "Audio: alternate audio route stream=101 channel=NAVIGATION " +
+                    "platformStream=$navigationStreamType appDuckEnabled=$duckMediaDuringNavigation " +
+                    "promptSignal=${if (airPlayDuckSignalSeen) guidanceAudio.duckRequested() else "not-seen"} " +
+                    "audioType=${format.audioType}",
+            ) }
+        }
+        if (duckMediaDuringNavigation && channel == AudioChannel.NAVIGATION && !isAlternateAudio) {
             runCatching { onAudioDiagnostic(
                 "Audio: guidance classification audioType=${format.audioType} payloadType=${format.payloadType} " +
                     "guidance=$guidance routeUpdateAgeMs=${guidanceAudio.updateAgeMillis(now) ?: "none"} " +
@@ -706,6 +955,7 @@ class AndroidMediaSink(
             ) }
         }
         refreshNavigationDucking()
+        notifyCarPlayAudioChannelChanged()
         audioRenderer(id, format).start()
         if (format.audioType == "media") updateMediaAudio(id, true)
     }
@@ -720,7 +970,9 @@ class AndroidMediaSink(
         defaultNavigationAudioIds.remove(id)
         confirmedGuidanceAudioIds.remove(id)
         activeGuidanceAudioIds.remove(id)
+        fallbackNavigationDuckIds.remove(id)
         refreshNavigationDucking()
+        notifyCarPlayAudioChannelChanged()
         synchronized(this) {
             audioRenderers.remove(id)?.close()
             callEchoReferences.remove(id)
@@ -730,19 +982,46 @@ class AndroidMediaSink(
 
     private fun refreshNavigationDucking() {
         if (!duckMediaDuringNavigation || audioClosed) return
+        if (airPlayDuckSignalSeen) {
+            if (guidanceAudio.duckRequested()) {
+                navigationDuckHandler?.removeCallbacks(releaseNavigationDuck)
+                setNavigationDucking(true)
+            }
+            return
+        }
         navigationDuckHandler?.removeCallbacks(releaseNavigationDuck)
-        if (activeGuidanceAudioIds.isNotEmpty()) {
+        if (fallbackNavigationDuckIds.isNotEmpty()) {
             setNavigationDucking(true)
         } else {
             // Finish the few frames still queued after a guidance stream closes.
-            navigationDuckHandler?.postDelayed(releaseNavigationDuck, 250L)
+            navigationDuckHandler?.postDelayed(releaseNavigationDuck, NAVIGATION_STREAM_RELEASE_DELAY_MILLIS)
         }
+    }
+
+    private fun scheduleNavigationDuckRelease(reason: String, delayMillis: Long) {
+        val handler = navigationDuckHandler ?: return
+        handler.removeCallbacks(releaseNavigationDuck)
+        handler.postDelayed(releaseNavigationDuck, delayMillis)
+        runCatching { onAudioDiagnostic("Audio: navigation duck release scheduled reason=$reason delayMs=$delayMillis") }
     }
 
     private fun setNavigationDucking(active: Boolean) {
         if (!relativeVolumes.setNavigationDucking(active)) return
         audioRenderers.values.forEach(AudioRenderer::updateRelativeVolume)
         runCatching { onAudioDiagnostic("Audio: navigation duck media active=$active factor=${if (active) 0.4f else 1f}") }
+    }
+
+    private val audioChannelNotificationLock = Any()
+    private var lastNotifiedAudioChannel: String? = null
+
+    private fun notifyCarPlayAudioChannelChanged() {
+        synchronized(audioChannelNotificationLock) {
+            val channel = nissanActiveAudioChannel()
+            if (channel != lastNotifiedAudioChannel) {
+                lastNotifiedAudioChannel = channel
+                runCatching { onCarPlayAudioChannelChanged(channel) }
+            }
+        }
     }
 
     /** Which CarPlay stream should own a volume step; guidance overlays media without Android focus. */
@@ -975,8 +1254,13 @@ class AndroidMediaSink(
 
     fun close() {
         audioClosed = true
+        navigationPromptFocus.close()
         microphoneStarts.keys.toList().forEach(::onMicrophoneStopped)
         navigationDuckHandler?.removeCallbacks(releaseNavigationDuck)
+        navigationDuckHandler?.removeCallbacks(expireNavigationDuck)
+        guidanceAudio.onAirPlayDuckingChanged(false)
+        airPlayDuckSignalSeen = false
+        relativeVolumes.setNavigationDucking(false)
         synchronized(videoOwnershipLock) {
             videoClosed = true
             videoDecoders.entries.toList().forEach { (type, decoder) -> retire(type, decoder) }
@@ -1001,8 +1285,10 @@ class AndroidMediaSink(
         audioRenderers.clear()
         activeCarPlayAudioChannels.clear()
         activeGuidanceAudioIds.clear()
+        fallbackNavigationDuckIds.clear()
         confirmedGuidanceAudioIds.clear()
         defaultNavigationAudioIds.clear()
+        notifyCarPlayAudioChannelChanged()
         callEchoReferences.clear()
         val hadMedia = synchronized(mediaAudioTypes) { mediaAudioTypes.isNotEmpty().also { mediaAudioTypes.clear() } }
         if (hadMedia) onMediaAudioChanged(false)
@@ -1102,6 +1388,9 @@ class AndroidMediaSink(
 
 /** CarPlay's main screen stream type. */
 private const val MAIN_SCREEN_TYPE = 110
+private const val NAVIGATION_STREAM_RELEASE_DELAY_MILLIS = 250L
+private const val NAVIGATION_DUCK_RELEASE_DELAY_MILLIS = 1_000L
+private const val NAVIGATION_DUCK_TIMEOUT_MILLIS = 30_000L
 
 /**
  * An offscreen consumer a parked decoder renders to while its SurfaceView is gone. It drops each image
@@ -1200,6 +1489,7 @@ private class VideoDecoder(
     private var duplicateConfigLogged = false
     private var failureReports = 0
     private val referenceChain = VideoReferenceChain()
+    private var recoveryAnchorPending = false
     private var lastKeyFrameRequestNs = 0L
     private var pendingKeyFrameRequestId = 0L
     private var pendingKeyFrameRequestAtNs = 0L
@@ -1218,7 +1508,7 @@ private class VideoDecoder(
     }
 
     fun submit(nalus: ByteArray, senderNanos: Long = 0L, arrivalNanos: Long = 0L) {
-        stats.onReceived(nalus.size, senderNanos)
+        stats.onReceived(nalus.size, senderNanos, arrivalNanos)
         // Pacing runs on the worker, in queue order: callbacks of a replaced stream may still deliver here.
         queue.offer(VideoJob.Frame(nalus, senderNanos = senderNanos, arrivalNanos = arrivalNanos))
     }
@@ -1276,16 +1566,37 @@ private class VideoDecoder(
                     when (job) {
                         is VideoJob.Config -> configureDecoder(job)
                         is VideoJob.Frame -> {
-                            val queueAgeNs = (System.nanoTime() - job.receivedNs).coerceAtLeast(0L)
+                            val nowNs = System.nanoTime()
+                            val frameArrivalNs = job.arrivalNanos.takeIf { it > 0L } ?: job.enqueuedNs
+                            val queueAgeNs = (nowNs - job.enqueuedNs).coerceAtLeast(0L)
+                            val frameAgeNs = (nowNs - frameArrivalNs).coerceAtLeast(0L)
                             stats.onDecoderQueueAge(queueAgeNs)
-                            if (queueAgeNs > MAX_FRAME_AGE_NS) {
-                                queue.discardFrames()
-                                recover("video backlog exceeded 250 ms", allowRebuild = false)
-                            } else feed(
-                                job.nalus,
-                                localTimeOf(job),
-                                job.arrivalNanos.takeIf { it > 0L } ?: job.receivedNs,
-                            )
+                            stats.onFrameAgeAtDecoder(frameAgeNs)
+                            val isRandomAccess = lastConfig?.let {
+                                MediaCodecSupport.isRandomAccess(job.nalus, it.codec)
+                            } ?: false
+                            if (frameAgeNs > MAX_FRAME_AGE_NS && !job.recoveryAnchor && !isRandomAccess) {
+                                val prune = lastConfig?.let { queue.retainLatestRandomAccess(it.codec) }
+                                if (prune?.anchorQueued == true) {
+                                    referenceChain.reset()
+                                    stats.onRecovery()
+                                    recoveryAnchorPending = true
+                                    report("recovery: video backlog exceeded 250 ms " +
+                                        "ageMs=${frameAgeNs / 1_000_000} queueMs=${queueAgeNs / 1_000_000} " +
+                                        "action=retain_latest_idr droppedFrames=${prune.droppedFrames} " +
+                                        "retainedFrames=${prune.retainedFrames}")
+                                } else {
+                                    recoveryAnchorPending = false
+                                    queue.discardFrames()
+                                    recover("video backlog exceeded 250 ms " +
+                                        "ageMs=${frameAgeNs / 1_000_000} queueMs=${queueAgeNs / 1_000_000}",
+                                        allowRebuild = false,
+                                    )
+                                }
+                            } else {
+                                if (job.recoveryAnchor) recoveryAnchorPending = false
+                                feed(job.nalus, localTimeOf(job), frameArrivalNs)
+                            }
                         }
                         is VideoJob.SurfaceChanged -> changeSurface(job.surface)
                         is VideoJob.DetachSurface -> detach(job.request)
@@ -1293,12 +1604,15 @@ private class VideoDecoder(
                         is VideoJob.RefreshPicture -> if (decoder != null) {
                             requestKeyFrameNow("surface_refresh")
                         }
-                        is VideoJob.Resync -> recover("video queue overflow", allowRebuild = false)
+                        is VideoJob.Resync -> {
+                            recoveryAnchorPending = false
+                            recover("video queue overflow", allowRebuild = false)
+                        }
                         null -> Unit
                     }
                     decoder?.let(::drainOutput)
                     stats.logIfDue()?.let(report)
-                    if (referenceChain.needsKeyFrame && lastConfig != null && outputSurface != null) {
+                    if (referenceChain.needsKeyFrame && !recoveryAnchorPending && lastConfig != null && outputSurface != null) {
                         requestKeyFrameIfDue("reference_chain_missing_idr")
                     }
                 } catch (error: Exception) {

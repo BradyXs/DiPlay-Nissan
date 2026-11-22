@@ -34,6 +34,8 @@ internal data class AudioChannelSelection(
  * audio on the media bus, so it receives the configured media buffer and output route.
  */
 internal object AudioChannelMapper {
+    /** CarPlay Alternate Audio is a dedicated high-priority output stream. */
+    const val STREAM_TYPE_ALT_AUDIO = 101
     const val STREAM_TYPE_MAIN_HIGH_AUDIO = 102
     const val DEFAULT_NAVIGATION_STREAM_TYPE = 14
 
@@ -44,6 +46,11 @@ internal object AudioChannelMapper {
         navigationStreamType: Int = DEFAULT_NAVIGATION_STREAM_TYPE,
         phoneStreamType: Int = AudioManager.STREAM_MUSIC,
     ): AudioChannelSelection {
+        // CarPlay assigns priority by the Alternate Audio stream itself. Do not infer whether it
+        // is navigation from audioType labels that may be absent or generic on different iPhones.
+        if (payloadType == STREAM_TYPE_ALT_AUDIO) {
+            return AudioChannelSelection(AudioChannel.NAVIGATION, AudioContentType.SPEECH, navigationStreamType)
+        }
         val normalized = audioType.lowercase()
         return when (mode) {
             AudioChannelMappingMode.MOBILE_COMPATIBLE -> mapMobileCompatible(normalized, payloadType, navigationStreamType, phoneStreamType)

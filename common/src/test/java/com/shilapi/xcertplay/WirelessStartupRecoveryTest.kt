@@ -14,6 +14,7 @@ import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.ConscryptMode
 import org.robolectric.annotation.LooperMode
 import org.robolectric.util.ReflectionHelpers
 import org.robolectric.util.ReflectionHelpers.ClassParameter.from
@@ -21,6 +22,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [29], qualifiers = "en", manifest = Config.NONE)
+@ConscryptMode(ConscryptMode.Mode.OFF)
 @LooperMode(LooperMode.Mode.PAUSED)
 class WirelessStartupRecoveryTest {
     private lateinit var activity: CarPlayHostActivity

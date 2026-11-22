@@ -531,13 +531,21 @@ class CarPlayMediaEngine(
         sessionStreams
             .filter { isScreenStreamType(it.type) }
             .forEach { sink.onScreenStreamActive(it.type, false) }
-        sessionStreams.forEach { streams.remove(it)?.close() }
-        audioMeta.clear()
+        sessionStreams.forEach { key ->
+            pendingMicrophone.remove(key)?.let { sink.onMicrophoneStopped(it.id) }
+            if (audioMeta.remove(key) != null) {
+                sink.onAudioStopped(AudioStreamId(key.type, key.audioType))
+            }
+            audioCaptures.remove(key)?.close()
+            streams.remove(key)?.close()
+        }
+        audioMeta.keys.filter { it.session === session }.forEach { audioMeta.remove(it) }
         pendingMicrophone.entries.toList().filter { it.key.session === session }.forEach { (key, mic) ->
             if (pendingMicrophone.remove(key, mic)) sink.onMicrophoneStopped(mic.id)
         }
-        audioCaptures.values.forEach(AudioPacketCapture::close)
-        audioCaptures.clear()
+        audioCaptures.entries.toList().filter { it.key.session === session }.forEach { (key, capture) ->
+            if (audioCaptures.remove(key, capture)) capture.close()
+        }
     }
 
     /** Removes ownership before a close that may block on delivery or invoke the sink. */

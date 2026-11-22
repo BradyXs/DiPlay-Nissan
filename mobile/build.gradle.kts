@@ -40,8 +40,8 @@ android {
         multiDexEnabled = true
         multiDexKeepProguard = file("multidex-config.pro")
         testInstrumentationRunner = "com.shilapi.xcertplay.T3LegacyInstrumentation"
-        versionCode = 90
-        versionName = "0.2.70"
+        versionCode = 98
+        versionName = "0.2.78"
         nissanAndroid44Abi?.let { abi ->
             ndk {
                 abiFilters += abi
@@ -73,7 +73,7 @@ android {
                 isShrinkResources = false
             }
             applicationIdSuffix = ".hudtest"
-            versionNameSuffix = if (nissanAndroid44Profile) "-hud-test-nissan44-call-stream" else "-hud-test"
+            versionNameSuffix = if (nissanAndroid44Profile) "-hud-test-nissan44-nav-call" else "-hud-test"
         }
         release {
             if (nissanAndroid44Profile) {

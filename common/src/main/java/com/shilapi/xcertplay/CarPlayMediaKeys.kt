@@ -27,6 +27,10 @@ import androidx.core.graphics.drawable.toBitmap
 import com.shilapi.xcertplay.airplay.CarPlayMediaButton
 import com.shilapi.xcertplay.host.R
 import com.shilapi.xcertplay.media.CarPlayNowPlaying
+import com.shilapi.xcertplay.media.CarPlayRouteGuidance
+import com.shilapi.xcertplay.media.CarPlayRouteSnapshot
+import com.shilapi.xcertplay.media.NissanClusterNavigationFormatter
+import com.shilapi.xcertplay.media.NissanClusterRouteDisplay
 import com.shilapi.xcertplay.orchestration.CarPlayController
 import java.io.File
 import java.util.concurrent.Executors
@@ -70,6 +74,11 @@ internal object CarPlayMediaKeys {
     private var diagnosticLog: SessionLogFile? = null
     private var mediaAudioActive = false
     private var nowPlaying = CarPlayNowPlaying()
+    private var reconnectPlaybackHint: Boolean? = null
+    private var reconnectPlaybackHintAtMs = 0L
+    private val routeGuidance = CarPlayRouteGuidance()
+    private val clusterRouteDisplay = NissanClusterRouteDisplay()
+    private var clusterRouteEnd: Runnable? = null
     private var elapsedUpdatedAt = 0L
     private var artwork: Bitmap? = null
     private val artworkCache = LinkedHashMap<Int, Bitmap?>()
@@ -77,7 +86,14 @@ internal object CarPlayMediaKeys {
 
     @Synchronized
     fun attach(context: Context, next: CarPlayController) {
+        var playbackHint: Boolean? = null
         if (controller !== next) {
+            val hintAge = SystemClock.elapsedRealtime() - reconnectPlaybackHintAtMs
+            playbackHint = reconnectPlaybackHint.takeIf {
+                it != null && hintAge in 0L..RECONNECT_PLAYBACK_HINT_MAX_AGE_MS
+            }
+            reconnectPlaybackHint = null
+            reconnectPlaybackHintAtMs = 0L
             releaseLocked()
             artworkOwner = artworkQueue.newSession()
             AsyncDiagnosticLog.close(diagnosticLog)
@@ -86,7 +102,10 @@ internal object CarPlayMediaKeys {
         }
         appContext = context.applicationContext
         controller = next
+        next.seedReconnectPlaybackHint(playbackHint)
         if (com.shilapi.xcertplay.host.BuildConfig.NISSAN_ANDROID_44_PROFILE) {
+            NissanClusterMetadataPublisher.start(::diagnostic)
+            NissanVolumeSessionClient.start(context.applicationContext, next, ::diagnostic)
             NissanOemSourceDiagnostics.start(diagnosticLog)
             NissanOemVolumeDiagnostics.start(diagnosticLog)
             NissanOemPhoneDiagnostics.start(diagnosticLog)
@@ -95,15 +114,25 @@ internal object CarPlayMediaKeys {
         next.playbackListener = { playing -> onIphonePlaying(next, playing) }
         next.nowPlayingListener = { update -> onNowPlayingChanged(next, update) }
         next.artworkListener = { id, bytes -> onArtworkChanged(next, id, bytes) }
+        next.navigationFrameListener = { frame -> onNavigationFrame(next, frame) }
     }
 
     /** Ends key handling for [expected]; a newer controller's state is left alone. */
     @Synchronized
-    fun detach(expected: CarPlayController?) {
+    fun detach(expected: CarPlayController?, preservePlaybackForReconnect: Boolean = false) {
         if (expected == null || controller !== expected) return
+        if (preservePlaybackForReconnect) {
+            reconnectPlaybackHint = nowPlaying.playing || mediaAudioActive
+            reconnectPlaybackHintAtMs = SystemClock.elapsedRealtime()
+            diagnostic("Call media: saved reconnect playback hint playing=$reconnectPlaybackHint")
+        } else {
+            reconnectPlaybackHint = null
+            reconnectPlaybackHintAtMs = 0L
+        }
         expected.playbackListener = null
         expected.nowPlayingListener = null
         expected.artworkListener = null
+        expected.navigationFrameListener = null
         controller = null
         releaseLocked()
         NissanOemSourceDiagnostics.stop()
@@ -158,7 +187,79 @@ internal object CarPlayMediaKeys {
                 // minutes. The position goes in the playback state.
                 if (Build.VERSION.SDK_INT >= 21 && metadataChanged) session?.setMetadata(androidMetadata(update, shownArtworkLocked()))
                 publishPlaybackStateLocked()
+                publishNissanDashboardLocked(clusterRouteDisplay.current(SystemClock.elapsedRealtime()))
             }
+        }
+    }
+
+    private fun onNavigationFrame(
+        expected: CarPlayController,
+        frame: com.shilapi.xcertplay.iap2.wire.Iap2Frame,
+    ) {
+        mainHandler.post {
+            synchronized(this) {
+                if (controller !== expected) return@synchronized
+                val update = runCatching { routeGuidance.accept(frame) }
+                    .onFailure { diagnostic("Navigation metadata parse failed class=${it.javaClass.simpleName}") }
+                    .getOrNull() ?: return@synchronized
+                diagnostic("Navigation metadata state active=${update.active} " +
+                    "sourceKnown=${!update.sourceName.isNullOrBlank()} " +
+                    "roadKnown=${!update.currentRoad.isNullOrBlank()} " +
+                    "destinationKnown=${!update.destination.isNullOrBlank()} " +
+                    "remainingDistanceMeters=${update.remainingDistanceMeters ?: "unknown"} " +
+                    "remainingTimeSeconds=${update.remainingTimeSeconds ?: "unknown"} " +
+                    "nextDistanceMeters=${update.distanceToNextManeuverMeters ?: "unknown"} " +
+                    "nextManeuverIndex=${update.nextManeuverIndex ?: "none"} " +
+                    "maneuverType=${update.nextManeuver?.type ?: "none"} " +
+                    "maneuverSegmentMeters=${update.nextManeuver?.distanceMeters ?: "unknown"} " +
+                    "maneuverTextKnown=${!update.nextManeuver?.description.isNullOrBlank()} " +
+                    "afterRoadKnown=${!update.nextManeuver?.afterRoadName.isNullOrBlank()} " +
+                    "laneKnown=${!update.laneDescription.isNullOrBlank()}")
+                val now = SystemClock.elapsedRealtime()
+                clusterRouteDisplay.update(update, now)
+                clusterRouteEnd?.let(mainHandler::removeCallbacks)
+                clusterRouteEnd = null
+                clusterRouteDisplay.pendingDelay(now)?.let { delay ->
+                    val runnable = Runnable {
+                        synchronized(this) {
+                            if (controller === expected) {
+                                clusterRouteEnd = null
+                                publishNissanDashboardLocked(clusterRouteDisplay.current(SystemClock.elapsedRealtime()))
+                            }
+                        }
+                    }
+                    clusterRouteEnd = runnable
+                    mainHandler.postDelayed(runnable, delay)
+                }
+                publishNissanDashboardLocked(clusterRouteDisplay.current(now))
+            }
+        }
+    }
+
+    private fun publishNissanDashboardLocked(route: CarPlayRouteSnapshot) {
+        if (!com.shilapi.xcertplay.host.BuildConfig.NISSAN_ANDROID_44_PROFILE) return
+        if (route.active) {
+            val lines = NissanClusterNavigationFormatter.format(route)
+            diagnostic("Navigation metadata display mode=navigation titleChars=${lines.title.length} " +
+                "detailChars=${lines.detail.length} maneuverPresent=${route.nextManeuver != null} " +
+                "lanePresent=${!route.laneDescription.isNullOrBlank()}")
+            NissanClusterMetadataPublisher.publish(
+                mode = NissanClusterMetadataPublisher.MODE_NAVIGATION,
+                title = lines.title,
+                album = lines.detail,
+                artist = "",
+            )
+        } else {
+            diagnostic("Navigation metadata display mode=media trackTitlePresent=${!nowPlaying.title.isNullOrBlank()} " +
+                "artistPresent=${!nowPlaying.artist.isNullOrBlank()} albumPresent=${!nowPlaying.album.isNullOrBlank()}")
+            NissanClusterMetadataPublisher.publish(
+                mode = NissanClusterMetadataPublisher.MODE_MEDIA,
+                title = nowPlaying.title,
+                // The Nissan cluster's second line uses the album field. Prefer the artist,
+                // matching car-dash-x, and retain album when the artist is unavailable.
+                album = nowPlaying.artist?.takeIf { it.isNotBlank() } ?: nowPlaying.album,
+                artist = nowPlaying.artist,
+            )
         }
     }
 
@@ -297,6 +398,11 @@ internal object CarPlayMediaKeys {
     }
 
     private fun releaseLocked() {
+        NissanClusterMetadataPublisher.clear()
+        NissanVolumeSessionClient.stop()
+        clusterRouteEnd?.let(mainHandler::removeCallbacks)
+        clusterRouteEnd = null
+        clusterRouteDisplay.clear()
         focusOwner = null
         artworkOwner = null
         artworkQueue.clear()
@@ -307,6 +413,7 @@ internal object CarPlayMediaKeys {
         session = null
         mediaAudioActive = false
         nowPlaying = CarPlayNowPlaying()
+        routeGuidance.clear()
         artwork = null
         artworkCache.clear()
         val audio = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
@@ -355,13 +462,13 @@ internal object CarPlayMediaKeys {
     }
 
     private fun send(index: Int, source: String) {
-        val sent = synchronized(this) { controller }?.sendMediaButton(index) ?: false
+        val sent = synchronized(this) { controller }?.sendMediaButton(index, userInitiated = true) ?: false
         diagnostic("Media key: media-session source=$source index=$index sent=$sent")
     }
 
     /** OEM Binder callbacks are already off the UI thread; only send while a live session exists. */
     fun sendFromOem(index: Int, source: String = "kuwo"): Boolean {
-        val sent = synchronized(this) { controller }?.sendMediaButton(index) == true
+        val sent = synchronized(this) { controller }?.sendMediaButton(index, userInitiated = true) == true
         diagnostic("Media key: oem-$source index=$index sent=$sent")
         return sent
     }
@@ -464,6 +571,7 @@ internal object CarPlayMediaKeys {
     private const val MAX_ARTWORK_DIMENSION = 384
     private const val MAX_ARTWORK_SOURCE_DIMENSION = 8_192
     private const val MAX_CACHED_ARTWORK = 4
+    private const val RECONNECT_PLAYBACK_HINT_MAX_AGE_MS = 90_000L
 }
 
 class LegacyMediaKeyReceiver : BroadcastReceiver() {

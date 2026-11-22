@@ -22,6 +22,7 @@ internal class NissanHfpSessionClient(
 ) : Closeable {
     private val main = Handler(Looper.getMainLooper())
     private val closed = AtomicBoolean()
+    private val reconnectGraceRequested = AtomicBoolean()
     private val worker = Executors.newSingleThreadScheduledExecutor { task ->
         Thread(task, "nissan-firmware-session").apply { isDaemon = true }
     }
@@ -35,9 +36,20 @@ internal class NissanHfpSessionClient(
         var lastResult: Int? = null
         var checkedBinder: IBinder? = null
         var supported = false
+        var reconnectGraceSupported = false
+        var preservedForReconnect = false
         val connection = object : ServiceConnection {
             override fun onServiceConnected(name: ComponentName, service: IBinder) {
-                if (!retired && !closed.get()) binder = service
+                if (!retired && !closed.get()) {
+                    binder = service
+                    // Don't wait for the next 3-second heartbeat: the firmware must arm its
+                    // session-scoped HFP request gate before the phone's Bluetooth reconnects.
+                    runCatching {
+                        worker.execute {
+                            if (!retired && !closed.get() && current === this@Registration) tick()
+                        }
+                    }
+                }
             }
             override fun onServiceDisconnected(name: ComponentName) { binder = null }
         }
@@ -50,6 +62,12 @@ internal class NissanHfpSessionClient(
                 retire()
             }
         }, 0, 3, TimeUnit.SECONDS)
+    }
+
+    /** Promptly register session transitions instead of waiting for the heartbeat interval. */
+    fun refresh() {
+        if (closed.get()) return
+        runCatching { worker.execute { if (!closed.get()) tick() } }
     }
 
     private fun tick() {
@@ -74,9 +92,11 @@ internal class NissanHfpSessionClient(
         val registration = current ?: return
         val binder = registration.binder ?: return
         if (registration.checkedBinder !== binder) {
-            registration.supported = transaction(binder, 1) { reply ->
-                reply.readInt() == 1 && reply.readInt() and 8 != 0
+            val info = transaction(binder, 1) { reply ->
+                reply.readInt() to reply.readInt()
             }
+            registration.supported = info.first == 1 && info.second and 8 != 0
+            registration.reconnectGraceSupported = info.first == 1 && info.second and 16 != 0
             registration.checkedBinder = binder
         }
         if (!registration.supported) return // Stock / older firmware remains unchanged.
@@ -100,7 +120,7 @@ internal class NissanHfpSessionClient(
         current = null
         registration.retired = true
         registration.binder?.let { binder ->
-            if (registration.supported) runCatching {
+            if (registration.supported && !registration.preservedForReconnect) runCatching {
                 transaction(binder, 8, { it.writeStrongBinder(registration.token) }) { it.readInt() }
             }
         }
@@ -108,6 +128,40 @@ internal class NissanHfpSessionClient(
             if (registration.bound) runCatching { context.unbindService(registration.connection) }
             registration.bound = false
         }
+    }
+
+    /** Preserve the same phone's short HFP request gate during a wired full-stack reconnect. */
+    fun preserveForReconnect() {
+        if (closed.get() || !reconnectGraceRequested.compareAndSet(false, true)) return
+        runCatching {
+            worker.execute {
+                val registration = current ?: run {
+                    report("Nissan firmware reconnect gate skipped reason=no_active_registration")
+                    return@execute
+                }
+                val binder = registration.binder ?: run {
+                    report("Nissan firmware reconnect gate skipped reason=bridge_unavailable")
+                    return@execute
+                }
+                if (!registration.supported || !registration.reconnectGraceSupported) {
+                    report("Nissan firmware reconnect gate skipped reason=firmware_capability_unavailable")
+                    return@execute
+                }
+                val result = runCatching {
+                    transaction(binder, 9, {
+                        it.writeStrongBinder(registration.token)
+                        it.writeString(registration.address)
+                        it.writeLong(RECONNECT_GRACE_MILLIS)
+                    }) { it.readInt() }
+                }.getOrElse { -1 }
+                if (result == 1) {
+                    registration.preservedForReconnect = true
+                    report("Nissan firmware reconnect gate preserved durationMs=$RECONNECT_GRACE_MILLIS")
+                } else {
+                    report("Nissan firmware reconnect gate not preserved result=$result")
+                }
+            }
+        }.onFailure { report("Nissan firmware reconnect gate scheduling failed error=${it.javaClass.simpleName}") }
     }
 
     override fun close() {
@@ -128,5 +182,9 @@ internal class NissanHfpSessionClient(
             reply.readException()
             return read(reply)
         } finally { reply.recycle(); data.recycle() }
+    }
+
+    companion object {
+        private const val RECONNECT_GRACE_MILLIS = 45_000L
     }
 }

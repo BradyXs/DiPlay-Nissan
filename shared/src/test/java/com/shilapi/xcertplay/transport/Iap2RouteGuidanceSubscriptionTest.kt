@@ -1,12 +1,23 @@
 package com.shilapi.xcertplay.transport
 
 import com.shilapi.xcertplay.iap2.message.Iap2ControlMessages
+import com.shilapi.xcertplay.iap2.body.Iap2BodyReader
 import com.shilapi.xcertplay.iap2.wire.Iap2ParameterList
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class Iap2RouteGuidanceSubscriptionTest {
+    @Test
+    fun laneGuidanceIsDeclaredOnlyWhenEnabled() {
+        val base = Iap2IdentificationConfig("test", "test", "test", "test", "1", "1", 3)
+        fun received(config: Iap2IdentificationConfig) =
+            Iap2BodyReader.of(Iap2IdentificationClient.identificationInformation(config)).u16List(7)
+        assertFalse(0x5204 in received(base))
+        assertTrue(0x5204 in received(base.copy(laneGuidanceEnabled = true)))
+    }
     @Test
     fun identificationDeclaresRouteGuidanceDisplayComponent() {
         val config = Iap2IdentificationConfig(

@@ -367,8 +367,9 @@ internal object NissanPhoneKeyProbe {
                     "callPhase=${call?.phase ?: "NONE"} channel=$channel siriActive=$siriActive target=$target")
                 return
             }
-            if (target == NissanSeekAudioRouting.Target.CALL ||
-                target == NissanSeekAudioRouting.Target.NAVIGATION) {
+            if (!NissanVolumeSessionClient.physicalRoutingActive() &&
+                (target == NissanSeekAudioRouting.Target.CALL ||
+                 target == NissanSeekAudioRouting.Target.NAVIGATION)) {
                 if (!seekVolumeGate.claim(operation, target, SystemClock.elapsedRealtime())) {
                     record(context, "CarPlay seek operation=$operation action=volume target=$target ignored=repeat")
                     return

@@ -77,6 +77,7 @@ internal const val SETUP_ERROR_EXTRA = "com.shilapi.xcertplay.extra.SETUP_ERROR"
 internal const val SETTINGS_FROM_CARPLAY_EXTRA = "com.shilapi.xcertplay.extra.SETTINGS_FROM_CARPLAY"
 internal const val SETTINGS_CATEGORY_EXTRA = "com.shilapi.xcertplay.extra.SETTINGS_CATEGORY"
 internal const val OPEN_SAFE_AREA_EDITOR_EXTRA = "com.shilapi.xcertplay.extra.OPEN_SAFE_AREA_EDITOR"
+internal const val RESTORE_PROJECTION_EXTRA = "com.shilapi.xcertplay.extra.RESTORE_PROJECTION"
 
 /** DiAuto's visual language, with a connection flow for an independent CarPlay receiver. */
 class DiPlayActivity : ComponentActivity() {
@@ -186,7 +187,6 @@ class DiPlayActivity : ComponentActivity() {
     }
 
     private var languagePreferenceAtCreate = AppLocale.SYSTEM
-    private var userNavigatedFromCarPlay = false
 
     private var interfaceOverride: Configuration? = null
     private var interfaceSystemDensityDpi = 0
@@ -218,12 +218,17 @@ class DiPlayActivity : ComponentActivity() {
         setupError = intent.getStringExtra(SETUP_ERROR_EXTRA)
         UiPageDiagnostics.initialize(applicationContext)
         UiPageDiagnostics.activityEvent("create", javaClass.simpleName, intent.getStringExtra("page") ?: "home")
-        // Back on the home page finishes this activity while the session runs on, so the icon lands here.
-        if (savedInstanceState == null && isLauncherIntent(intent) && CarPlayBackgroundSession.hasSession()) {
-            openProjection(); finish(); return
-        }
-        if (intent.hasExtra("page")) {
-            userNavigatedFromCarPlay = true
+        // A live projection owns the foreground while its session is active. The one intentional
+        // exception is the complete settings page opened by the CarPlay host itself.
+        val initialPage = savedInstanceState?.getString("page") ?: intent.getStringExtra("page")
+        val settingsRequestedFromCarPlay = isCarPlaySettingsIntent(intent, initialPage)
+        if (CarPlayBackgroundSession.hasSession() && !settingsRequestedFromCarPlay) {
+            UiPageDiagnostics.log(
+                "UI_NAV action=restore-carplay page=${initialPage ?: "home"} reason=activity-create",
+            )
+            openProjection()
+            finish()
+            return
         }
         val localeAndSizeStartedAtNs = SystemClock.elapsedRealtimeNanos()
         enforceInterfaceSize()
@@ -273,21 +278,24 @@ class DiPlayActivity : ComponentActivity() {
         val previousSetupError = setupError
         intent.getStringExtra(SETUP_ERROR_EXTRA)?.let { setupError = it }
         connectionSettingsReturnCategory = null
-        // CarPlay runs in its own task, so the launcher icon resumes this one. Settings opened from
-        // CarPlay carry a "page" extra, which isLauncherIntent rejects.
-        if (isLauncherIntent(intent) && CarPlayBackgroundSession.hasSession()) {
-            userNavigatedFromCarPlay = false
-            showIntentPage("home", setupError != previousSetupError); openProjection(); return
+        // The host's explicit settings request is the only DiPlay page allowed above a live session.
+        val requestedPage = intent.getStringExtra("page")
+        val settingsRequestedFromCarPlay = isCarPlaySettingsIntent(intent, requestedPage)
+        if (CarPlayBackgroundSession.hasSession() && !settingsRequestedFromCarPlay) {
+            // Do not render any DiPlay internal page on the way back to a live projection.
+            page = "home"
+            UiPageDiagnostics.log(
+                "UI_NAV action=restore-carplay page=${requestedPage ?: "home"} reason=new-intent",
+            )
+            openProjection()
+            return
         }
         val explicitPage = intent.getStringExtra("page")
         if (explicitPage != null) {
-            userNavigatedFromCarPlay = true
             intent.getStringExtra(SETTINGS_CATEGORY_EXTRA)?.let { value ->
                 runCatching { SettingsCategory.valueOf(value) }.getOrNull()?.let { settingsCategory = it }
             }
             showIntentPage(explicitPage, setupError != previousSetupError)
-        } else if (CarPlayBackgroundSession.hasSession() && !userNavigatedFromCarPlay) {
-            showIntentPage("home", setupError != previousSetupError); openProjection(); return
         } else {
             showIntentPage("home", setupError != previousSetupError)
         }
@@ -308,6 +316,21 @@ class DiPlayActivity : ComponentActivity() {
         } else {
             render()
         }
+    }
+
+    private fun isCarPlaySettingsSurface(): Boolean =
+        isCarPlaySettingsIntent(intent, page)
+
+    private fun redirectToCarPlayIfSessionActive(reason: String): Boolean {
+        if (!CarPlayBackgroundSession.hasSession() || isCarPlaySettingsSurface()) return false
+        val previousPage = page
+        page = "home"
+        connectionSettingsReturnCategory = null
+        UiPageDiagnostics.log(
+            "UI_NAV action=restore-carplay page=$previousPage reason=$reason",
+        )
+        openProjection()
+        return true
     }
 
     /** Run the startup hardware/TLS probe off the UI thread after the first home frame is drawn. */
@@ -487,13 +510,9 @@ class DiPlayActivity : ComponentActivity() {
             recreate()
             return
         }
-        // Reverse-camera/system overlays can return to the last DiPlay page (sometimes Connection)
-        // even though the CarPlay host session never stopped. Bring the live projection forward
-        // before refreshing that page so it does not flash on screen first.
-        if (CarPlayBackgroundSession.hasSession() &&
-            (page == "home" || page == "connection") && !userNavigatedFromCarPlay) {
-            UiPageDiagnostics.log("UI_NAV action=restore-carplay page=$page reason=active-session-resumed")
-            openProjection()
+        // Covers resuming any stale internal route, including About and setup pages. The settings
+        // route opened explicitly by CarPlay remains available while the projection is running.
+        if (redirectToCarPlayIfSessionActive("active-session-resumed")) {
             return
         }
         if (sizeChanged) render()
@@ -525,7 +544,6 @@ class DiPlayActivity : ComponentActivity() {
         uiActivityResumed = false
         uiPageProbe?.onBackground()
         UiPageDiagnostics.activityEvent("pause", javaClass.simpleName, uiPageLabel())
-        userNavigatedFromCarPlay = false
         handler.removeCallbacks(tick)
         super.onPause()
     }
@@ -565,6 +583,10 @@ class DiPlayActivity : ComponentActivity() {
         }
 
     private fun render() {
+        // All internal destinations except the explicitly requested CarPlay settings surface are
+        // subordinate to a live projection. Guarding render also covers callbacks that navigate
+        // by assigning `page` directly, so they cannot flash an intermediate DiPlay screen.
+        if (redirectToCarPlayIfSessionActive("internal-page-render")) return
         if (page == "settings" && nissanAndroid44Profile && !nissanDefaultsReady) {
             if (!nissanSettingsRenderPending) {
                 nissanSettingsRenderPending = true
@@ -785,7 +807,6 @@ class DiPlayActivity : ComponentActivity() {
                 CarPlayBackgroundSession.hasSession() -> {
                 intent.removeExtra(SETTINGS_FROM_CARPLAY_EXTRA)
                 page = "home"
-                userNavigatedFromCarPlay = false
                 openProjection()
                 return
             }
@@ -814,7 +835,8 @@ class DiPlayActivity : ComponentActivity() {
             },
             choosePhone = ::choosePhone,
             hotspotSettings = ::openCarWifiSettings,
-        )).build(content, isCompactLayout, setupError, carHotspotOff(), version())
+        )).build(content, isCompactLayout, setupError,
+            carHotspotOff() && !nissanAndroid44Profile, version())
         status = widgets.status
         connectButton = widgets.connect
         disconnectButton = widgets.disconnect
@@ -1468,7 +1490,11 @@ class DiPlayActivity : ComponentActivity() {
         }
         if (mode == WirelessHotspotMode.MANUAL) {
             parent.addView(label(getString(R.string.hotspot_setup), 22, TEXT, true))
-            parent.addView(label(getString(R.string.s_1_open_car_hotspot_settings_turn_the_hotspot_on_and_sele), 16, MUTED).apply { setPadding(0, dp(8), 0, dp(12)) })
+            parent.addView(label(getString(if (nissanAndroid44Profile)
+                R.string.hotspot_auto_start_setup_instructions
+                else R.string.s_1_open_car_hotspot_settings_turn_the_hotspot_on_and_sele), 16, MUTED).apply {
+                setPadding(0, dp(8), 0, dp(12))
+            })
             parent.addView(button(getString(R.string.open_car_hotspot_settings), false) { openCarWifiSettings() }, matchButton(0, 60))
             parent.addView(button(if (pendingCarHotspotSetup) getString(R.string.save_hotspot_details_and_use_this_mode) else "${getString(R.string.edit_saved_hotspot_prefix)}${storedSsid()}", false) {
                 askHotspotCredentials { ssid, password ->
@@ -1477,7 +1503,17 @@ class DiPlayActivity : ComponentActivity() {
                     applyWirelessLink(WirelessHotspotMode.MANUAL)
                 }
             }, matchButton(12, 60))
-            parent.addView(label(if (pendingCarHotspotSetup) getString(R.string.finish_setup_save_your_hotspot_details_to_use_this_mode) else if (carHotspotOff()) getString(R.string.hotspot_details_off) else getString(R.string.hotspot_details_saved), 15, if (carHotspotOff()) WARNING else MUTED).apply { setPadding(0, dp(12), 0, 0) })
+            val hotspotIsOff = carHotspotOff()
+            val hotspotDetails = when {
+                pendingCarHotspotSetup -> getString(R.string.finish_setup_save_your_hotspot_details_to_use_this_mode)
+                nissanAndroid44Profile -> getString(R.string.hotspot_auto_start_details)
+                hotspotIsOff -> getString(R.string.hotspot_details_off)
+                else -> getString(R.string.hotspot_details_saved)
+            }
+            parent.addView(label(hotspotDetails, 15,
+                if (hotspotIsOff && !nissanAndroid44Profile) WARNING else MUTED).apply {
+                setPadding(0, dp(12), 0, 0)
+            })
             if (!nissanAndroid44Profile && !pendingCarHotspotSetup) manualHotspotAdvancedSettings(parent)
         } else if (mode == WirelessHotspotMode.EXISTING_WIFI) {
             parent.addView(label(getString(R.string.existing_wifi_instructions), 16, MUTED))
@@ -2330,7 +2366,16 @@ class DiPlayActivity : ComponentActivity() {
         }
     }
     private fun openProjection() {
-        startActivity(Intent(this, CarPlayHostActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT))
+        val restoreRenderedProjection = CarPlayBackgroundSession.hasSession() &&
+            CarPlayBackgroundSession.active && CarPlayBackgroundSession.hasRenderedVideoFrame
+        UiPageDiagnostics.log(
+            "UI_NAV action=open-carplay restoreRenderedProjection=$restoreRenderedProjection " +
+                "session=${CarPlayBackgroundSession.hasSession()} active=${CarPlayBackgroundSession.active} " +
+                "frameRendered=${CarPlayBackgroundSession.hasRenderedVideoFrame}",
+        )
+        startActivity(Intent(this, CarPlayHostActivity::class.java)
+            .putExtra(RESTORE_PROJECTION_EXTRA, restoreRenderedProjection)
+            .addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or Intent.FLAG_ACTIVITY_NO_ANIMATION))
     }
     private val bluetoothExecutor = java.util.concurrent.Executors.newSingleThreadExecutor()
     private val pairedPhoneRepository by lazy(LazyThreadSafetyMode.NONE) {
@@ -2825,6 +2870,9 @@ class DiPlayActivity : ComponentActivity() {
         cardUi.normalizeSpacing(container, isCard)
     private fun dp(value: Int) = cardUi.dp(value)
     companion object {
+        private fun isCarPlaySettingsIntent(intent: Intent, page: String?): Boolean =
+            page == "settings" && intent.getBooleanExtra(SETTINGS_FROM_CARPLAY_EXTRA, false)
+
         internal fun isLauncherIntent(intent: Intent): Boolean =
             intent.action == Intent.ACTION_MAIN && intent.hasCategory(Intent.CATEGORY_LAUNCHER) &&
                 !intent.hasExtra("page")

@@ -31,11 +31,13 @@ import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.ConscryptMode
 import org.robolectric.annotation.LooperMode
 import org.robolectric.android.util.concurrent.PausedExecutorService
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [29])
+@ConscryptMode(ConscryptMode.Mode.OFF)
 @LooperMode(LooperMode.Mode.PAUSED)
 class CarPlayHostSettingsTest {
     private lateinit var activity: CarPlayHostActivity
@@ -237,6 +239,107 @@ class CarPlayHostSettingsTest {
         method.invoke(activity, intent)
         assertNull(shadowOf(activity).nextStartedActivityForResult)
         assertFalse(activity.isFinishing)
+    }
+
+    @Test fun wiredVpnEstablishFailureRechecksConsentWithoutRepeatedDialogs() {
+        org.robolectric.shadows.ShadowVpnService.setPrepareResult(Intent("test.VPN_CONSENT"))
+        attachController()
+        setField("wirelessEnabled", false)
+        setField("vpnReady", true)
+        val reporter = activity.javaClass.getDeclaredMethod("createStatusReporter", Int::class.javaPrimitiveType)
+            .apply { isAccessible = true }.invoke(activity, 0) as (CarPlayStatus) -> Unit
+        val failure = CarPlayStatus.Failed("VpnService.establish returned null",
+            recoveryAction = CarPlayRecoveryAction.RECHECK_WIRED_VPN_PREPARATION)
+
+        reporter(failure)
+        assertFalse(field("vpnReady") as Boolean)
+        assertTrue(field("awaitingVpnConsent") as Boolean)
+        assertTrue(field("startupRetryStopped") as Boolean)
+        assertEquals("test.VPN_CONSENT", shadowOf(activity).nextStartedActivityForResult.intent.action)
+        reporter(failure)
+        assertNull(shadowOf(activity).nextStartedActivityForResult)
+        assertEquals(1, field("vpnAutomaticRecoveries"))
+    }
+
+    @Test fun repeatedWiredVpnEstablishFailureStopsAutomaticRetry() {
+        org.robolectric.shadows.ShadowVpnService.setPrepareResult(null)
+        attachController()
+        setField("wirelessEnabled", false)
+        setField("vpnReady", true)
+        setField("vpnAutomaticRecoveries", 1)
+        val reporter = activity.javaClass.getDeclaredMethod("createStatusReporter", Int::class.javaPrimitiveType)
+            .apply { isAccessible = true }.invoke(activity, 0) as (CarPlayStatus) -> Unit
+        reporter(CarPlayStatus.Failed("VpnService.establish returned null",
+            recoveryAction = CarPlayRecoveryAction.RECHECK_WIRED_VPN_PREPARATION))
+
+        assertFalse(field("vpnReady") as Boolean)
+        assertTrue(field("startupRetryStopped") as Boolean)
+        assertFalse(field("reconnectScheduled") as Boolean)
+        assertEquals(View.VISIBLE, (field("startupRetryButton") as View).visibility)
+        assertNull(shadowOf(activity).nextStartedActivityForResult)
+    }
+
+    @Test fun preparedVpnGetsOneAutomaticWiredRestartAfterNullEstablishment() {
+        org.robolectric.shadows.ShadowVpnService.setPrepareResult(null)
+        attachController()
+        setField("wirelessEnabled", false)
+        setField("vpnReady", true)
+        val reporter = activity.javaClass.getDeclaredMethod("createStatusReporter", Int::class.javaPrimitiveType)
+            .apply { isAccessible = true }.invoke(activity, 0) as (CarPlayStatus) -> Unit
+        reporter(CarPlayStatus.Failed("VpnService.establish returned null",
+            recoveryAction = CarPlayRecoveryAction.RECHECK_WIRED_VPN_PREPARATION))
+
+        assertEquals(1, field("vpnAutomaticRecoveries"))
+        assertEquals(1, field("restartGeneration"))
+        assertTrue(field("vpnReady") as Boolean)
+        assertFalse(field("startupRetryStopped") as Boolean)
+        assertNull(shadowOf(activity).nextStartedActivityForResult)
+    }
+
+    @Test fun grantedVpnConsentIsRecheckedBeforeRestartingWiredSession() {
+        org.robolectric.shadows.ShadowVpnService.setPrepareResult(null)
+        attachController()
+        setField("wirelessEnabled", false)
+        setField("awaitingVpnConsent", true)
+        setField("vpnRecoveryPending", true)
+        setField("startupRetryStopped", true)
+        vpnConsentResult(true)
+
+        assertTrue(field("vpnReady") as Boolean)
+        assertFalse(field("awaitingVpnConsent") as Boolean)
+        assertFalse(field("startupRetryStopped") as Boolean)
+        assertEquals(1, field("restartGeneration"))
+    }
+
+    @Test fun deniedVpnConsentWaitsForExplicitRetry() {
+        attachController()
+        setField("awaitingVpnConsent", true)
+        setField("vpnRecoveryPending", true)
+        setField("vpnReady", true)
+        vpnConsentResult(false)
+
+        assertFalse(field("vpnReady") as Boolean)
+        assertFalse(field("awaitingVpnConsent") as Boolean)
+        assertTrue(field("startupRetryStopped") as Boolean)
+        assertEquals(0, field("restartGeneration"))
+        assertEquals(View.VISIBLE, (field("startupRetryButton") as View).visibility)
+    }
+
+    @Test fun vpnConsentResultCannotOverrideAnUnpreparedSystem() {
+        org.robolectric.shadows.ShadowVpnService.setPrepareResult(Intent("test.VPN_CONSENT"))
+        attachController()
+        setField("awaitingVpnConsent", true)
+        setField("vpnRecoveryPending", true)
+        vpnConsentResult(true)
+
+        assertFalse(field("vpnReady") as Boolean)
+        assertTrue(field("startupRetryStopped") as Boolean)
+        assertEquals(0, field("restartGeneration"))
+    }
+
+    private fun vpnConsentResult(granted: Boolean) {
+        activity.javaClass.getDeclaredMethod("onVpnConsentResult", Boolean::class.javaPrimitiveType)
+            .apply { isAccessible = true }.invoke(activity, granted)
     }
 
     @Test fun onlyIphoneAttachmentSelectsWiredTransport() {

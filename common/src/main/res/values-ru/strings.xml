@@ -25,6 +25,9 @@
     <string name="hotspot_mode_p2p_desc">Альтернативный вариант. Требует включённого переключателя Wi-Fi автомобиля; на 2,4 ГГц возможны подтормаживания.</string>
     <string name="hotspot_details_off">Точка доступа выключена · Включите её в настройках автомобиля.</string>
     <string name="hotspot_details_saved">Данные сохранены · Перед подключением убедитесь, что точка доступа автомобиля включена.</string>
+    <string name="hotspot_auto_start_details">Если точка доступа автомобиля выключена, DiPlay включит её при подключении CarPlay по Wi-Fi. Если её включил DiPlay, она выключится после завершения сеанса.</string>
+    <string name="hotspot_auto_start_setup_instructions">Откройте настройки точки доступа автомобиля, посмотрите её имя и пароль и сохраните их здесь. DiPlay сможет включать точку доступа при подключении CarPlay по Wi-Fi.</string>
+    <string name="hotspot_auto_start_unavailable">Эта прошивка не поддерживает автоматическое включение точки доступа. Включите её в настройках автомобиля и повторите попытку.</string>
     <string name="permission_enabled_ready">Разрешение включено · готово к использованию</string>
     <string name="permission_not_enabled">Разрешение ещё не включено</string>
     <string name="clipboard_usage_access">Доступ к использованию DiPlay</string>
@@ -340,6 +343,7 @@
     <string name="use_a_usb_data_cable_and_unlock_your_iphone_allow_trust_an">Используйте кабель данных USB и разблокируйте iPhone.\nРазрешите доверие и CarPlay, если iPhone попросит.</string>
     <string name="use_your_last_connection_type_and_selected_iphone">Использовать последний способ подключения и выбранный iPhone.</string>
     <string name="vpn_consent_was_denied">Согласие на VPN отклонено</string>
+    <string name="vpn_unavailable_retry">Не удалось запустить локальный VPN. Повторите попытку; если проблема сохраняется, перезапустите головное устройство.</string>
     <string name="waiting_for_iphone_over_usb">Ожидание iPhone по USB</string>
     <string name="waiting_for_mfi_coprocessor">Ожидание сопроцессора MFi</string>
     <string name="waiting_for_paired_iphone">Ожидание связанного iPhone</string>

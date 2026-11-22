@@ -307,7 +307,10 @@ class TlsDuplexChannel private constructor(
     private fun fail(error: Exception): IphoneUsbException {
         val mapped = when (error) {
             is IphoneUsbException -> error
-            else -> IphoneUsbException.Protocol("TLS channel failed (${error.javaClass.simpleName})")
+            else -> IphoneUsbException.Protocol(
+                "TLS channel failed (${describeFailure(error)})",
+                error,
+            )
         }
         val shouldClose = synchronized(stateLock) {
             if (failure == null) failure = mapped
@@ -324,6 +327,25 @@ class TlsDuplexChannel private constructor(
             }
         }
         return synchronized(stateLock) { failure ?: mapped }
+    }
+
+    /** Keep enough TLS cause detail to distinguish a peer close from a local transport fault. */
+    private fun describeFailure(error: Throwable): String {
+        val parts = ArrayList<String>(MAXIMUM_FAILURE_CAUSES)
+        var current: Throwable? = error
+        while (current != null && parts.size < MAXIMUM_FAILURE_CAUSES) {
+            val message = current.message
+                ?.replace(Regex("[\\r\\n\\t]+"), " ")
+                ?.replace(Regex(" +"), " ")
+                ?.trim()
+                ?.take(MAXIMUM_FAILURE_MESSAGE_CHARS)
+            parts += if (message.isNullOrEmpty()) current.javaClass.simpleName
+            else "${current.javaClass.simpleName}: $message"
+            val next = current.cause
+            if (next === current) break
+            current = next
+        }
+        return parts.joinToString(" <- ").take(MAXIMUM_FAILURE_SUMMARY_CHARS)
     }
 
     private fun grow(capacity: Int): Int {
@@ -395,6 +417,9 @@ class TlsDuplexChannel private constructor(
         private const val MAXIMUM_CONTROL_STEPS = 32
         private const val MAXIMUM_NO_PROGRESS_STEPS = 8
         private const val MAXIMUM_CLOSE_WRAP_STEPS = 4
+        private const val MAXIMUM_FAILURE_CAUSES = 3
+        private const val MAXIMUM_FAILURE_MESSAGE_CHARS = 128
+        private const val MAXIMUM_FAILURE_SUMMARY_CHARS = 384
         private const val NANOS_PER_MILLISECOND = 1_000_000L
 
         /** Creates and fully handshakes a TLS client stream, taking ownership of [underlying]. */

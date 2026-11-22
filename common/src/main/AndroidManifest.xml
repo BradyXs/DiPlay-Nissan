@@ -17,6 +17,10 @@
     <permission
         android:name="${applicationId}.permission.READ_CARPLAY_SESSION"
         android:protectionLevel="signatureOrSystem" />
+    <permission
+        android:name="${applicationId}.permission.CONTROL_CARPLAY_CLUSTER"
+        android:protectionLevel="signatureOrSystem" />
+    <uses-permission android:name="${applicationId}.permission.CONTROL_CARPLAY_CLUSTER" />
     <queries>
         <!-- Nissan's Android 4.4 Bluetooth pairing list is exposed through this vendor service. -->
         <package android:name="com.anwsdk.service" />

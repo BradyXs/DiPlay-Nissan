@@ -1,10 +1,12 @@
 package com.shilapi.xcertplay.network
 
 import android.content.pm.PackageManager
+import android.content.Intent
 import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbDeviceConnection
 import android.hardware.usb.UsbEndpoint
 import android.net.VpnService
+import android.os.Build
 import android.os.ParcelFileDescriptor
 import com.shilapi.xcertplay.airplay.AirPlayConfig
 import com.shilapi.xcertplay.airplay.AirPlayDisplayConfig
@@ -26,6 +28,7 @@ import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.ConscryptMode
 import org.robolectric.annotation.Implementation
 import org.robolectric.annotation.Implements
 import org.robolectric.annotation.RealObject
@@ -35,6 +38,7 @@ import org.robolectric.util.ReflectionHelpers.ClassParameter
 /** Exercise the real attachment transaction while controlling only the Android VPN boundary. */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [28, 33], manifest = Config.NONE, shadows = [VpnScopeBuilderShadow::class])
+@ConscryptMode(ConscryptMode.Mode.OFF)
 class CarPlayVpnScopeTest {
     @Before fun resetVpnBoundary() { VpnScopeBoundary.reset() }
 
@@ -53,9 +57,37 @@ class CarPlayVpnScopeTest {
         withService { service ->
             val result = attachWired(service)
 
-            assertEquals(CarPlayVpnService.AttachResult.Failed("VpnService.establish returned null"), result)
+            assertEquals(CarPlayVpnService.AttachResult.Failed("VpnService.establish returned null", vpnPreparationRequired = true), result)
             assertEquals(listOf("allow:${service.packageName}", "establish"), VpnScopeBoundary.calls)
             assertReleased(service)
+        }
+    }
+
+    @Test
+    fun androidVpnBindingUsesFrameworkCallbackAndAppBindingKeepsLocalBinder() {
+        withService { service ->
+            val systemBinder = service.onBind(Intent(VpnService.SERVICE_INTERFACE))
+            val appBinder = service.onBind(Intent())
+            assertTrue(systemBinder != null && systemBinder !is CarPlayVpnService.LocalBinder)
+            assertTrue(appBinder is CarPlayVpnService.LocalBinder)
+        }
+    }
+
+    @Test @Config(sdk = [28])
+    fun kitkatNullEstablishmentRequestsVpnPreparationAndReleasesNcm() {
+        // Robolectric 4.17 no longer runs API 19; exercise the real-4.4 branch using
+        // the existing release-version detection on a supported runtime.
+        val previousRelease = Build.VERSION.RELEASE
+        ReflectionHelpers.setStaticField(Build.VERSION::class.java, "RELEASE", "4.4.3")
+        try {
+            withService { service ->
+                assertEquals(CarPlayVpnService.AttachResult.Failed("VpnService.establish returned null", true),
+                    attachWired(service))
+                assertEquals(listOf("establish"), VpnScopeBoundary.calls)
+                assertReleased(service)
+            }
+        } finally {
+            ReflectionHelpers.setStaticField(Build.VERSION::class.java, "RELEASE", previousRelease)
         }
     }
 

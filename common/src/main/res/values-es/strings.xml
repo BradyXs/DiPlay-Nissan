@@ -25,6 +25,9 @@
     <string name="hotspot_mode_p2p_desc">Configuración alternativa. Requiere el interruptor Wi‑Fi del coche; en 2,4 GHz la conexión puede trabarse.</string>
     <string name="hotspot_details_off">El punto de acceso está apagado · Actívalo en la configuración del coche.</string>
     <string name="hotspot_details_saved">Datos guardados · Comprueba que el punto de acceso del coche esté activado antes de conectarte.</string>
+    <string name="hotspot_auto_start_details">DiPlay activa el punto de acceso del coche al iniciar CarPlay inalámbrico si está apagado. Si DiPlay lo activó, se apagará al terminar la sesión.</string>
+    <string name="hotspot_auto_start_setup_instructions">Abre la configuración del punto de acceso del coche para consultar el nombre y la contraseña y guardarlos aquí. DiPlay puede activarlo al conectar CarPlay inalámbrico.</string>
+    <string name="hotspot_auto_start_unavailable">Este firmware no permite activar el punto de acceso automáticamente. Actívalo en la configuración del coche y vuelve a intentarlo.</string>
     <string name="permission_enabled_ready">Permiso activado · listo para usar</string>
     <string name="permission_not_enabled">El permiso aún no está activado</string>
     <string name="clipboard_usage_access">Acceso al uso de DiPlay</string>
@@ -340,6 +343,7 @@
     <string name="use_a_usb_data_cable_and_unlock_your_iphone_allow_trust_an">Usa un cable de datos USB y desbloquea tu iPhone.\nPermite «Confiar» y CarPlay si tu iPhone lo pide.</string>
     <string name="use_your_last_connection_type_and_selected_iphone">Usa tu último tipo de conexión y el iPhone seleccionado.</string>
     <string name="vpn_consent_was_denied">Se denegó el consentimiento de VPN</string>
+    <string name="vpn_unavailable_retry">No se pudo iniciar la VPN local. Vuelve a intentarlo; si el problema continúa, reinicia la unidad del vehículo.</string>
     <string name="waiting_for_iphone_over_usb">Esperando iPhone por USB</string>
     <string name="waiting_for_mfi_coprocessor">Esperando al coprocesador MFi</string>
     <string name="waiting_for_paired_iphone">Esperando al iPhone emparejado</string>

@@ -9,6 +9,7 @@ import java.net.ServerSocket
 import java.net.Socket
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicReference
 
 enum class VideoCodec { H264, H265 }
 
@@ -17,7 +18,8 @@ enum class VideoCodec { H264, H265 }
  *
  * Each message is a 128-byte AirPlayScreenHeader followed by a body: a clear VideoConfig
  * (avcC/hvcC) or a ChaCha20-Poly1305 sealed VideoFrame. The key is the DataStream output key
- * and the per-frame nonce is an 8-byte little-endian counter.
+ * and the per-frame nonce is an 8-byte little-endian counter. Socket reads hand complete messages
+ * to one bounded, ordered worker so a slow decrypt does not block the reader indefinitely.
  */
 class ScreenStream(
     private val key: ByteArray,
@@ -76,8 +78,37 @@ class ScreenStream(
         var failure: Throwable? = null
         val stats = StreamReceiveStats("video", onDiagnostic)
         val buffers = ScreenIngressBufferPool()
+        val ingress = ScreenIngressQueue(maxMessages = INGRESS_MAX_MESSAGES, maxBytes = INGRESS_MAX_BYTES)
+        val processingFailure = AtomicReference<Throwable?>()
         var nextBufferReportNs = System.nanoTime() + QUEUE_REPORT_INTERVAL_NS
-        runCatching { onDiagnostic("Video receive pipeline mode=serial worker=airplay-screen") }
+        runCatching {
+            onDiagnostic("Video receive pipeline mode=bounded reader=airplay-screen " +
+                "worker=airplay-screen-process maxMessages=$INGRESS_MAX_MESSAGES maxBytes=$INGRESS_MAX_BYTES")
+        }
+        val processor = Thread({
+            try {
+                while (true) {
+                    val message = ingress.take() ?: break
+                    val processingStartedNs = System.nanoTime()
+                    stats.queueWaited((processingStartedNs - message.arrivalNanos).coerceAtLeast(0L))
+                    try {
+                        onMessage(message.header, message.body, message.bodySize, stats, message.arrivalNanos)
+                    } finally {
+                        stats.processed(System.nanoTime() - processingStartedNs)
+                        buffers.release(message.header)
+                        buffers.release(message.body)
+                    }
+                }
+            } catch (error: InterruptedException) {
+                Thread.currentThread().interrupt()
+                if (!closed.get()) processingFailure.compareAndSet(null, error)
+            } catch (error: Throwable) {
+                processingFailure.compareAndSet(null, error)
+                ingress.abort()
+                safeClose(sock)
+            }
+        }, "airplay-screen-process").apply { isDaemon = true }
+        processor.start()
         try {
             val input = sock.getInputStream()
             while (!closed.get()) {
@@ -100,27 +131,39 @@ class ScreenStream(
                     senderTimestampNanos = if (opcode == OP_VIDEO_FRAME) ScreenCodec.senderNanos(header) else null,
                 )
                 AirPlayMediaActivity.onPayload()
-                val processingStartedNs = System.nanoTime()
+                val message = ScreenIngressMessage(header, body, arrivalNanos, bodySize)
+                var handedOff = false
                 try {
-                    // This test build deliberately mirrors v0.2.20's single-thread ordering:
-                    // read the next wire message only after the current one is decrypted and dispatched.
-                    stats.queueWaited(0)
-                    onMessage(header, body, bodySize, stats, arrivalNanos)
-                    stats.processed(System.nanoTime() - processingStartedNs)
+                    handedOff = ingress.offer(message)
                 } finally {
-                    buffers.release(header)
-                    buffers.release(body)
+                    if (!handedOff) {
+                        buffers.release(header)
+                        buffers.release(body)
+                    }
                 }
+                if (!handedOff) break
                 val now = System.nanoTime()
                 if (now >= nextBufferReportNs) {
-                    reportBufferMetrics(buffers)
+                    reportBufferMetrics(buffers, ingress)
                     nextBufferReportNs = now + QUEUE_REPORT_INTERVAL_NS
                 }
             }
         } catch (error: Exception) {
-            if (!closed.get()) failure = error
+            if (!closed.get() && processingFailure.get() == null) failure = error
         } finally {
-            reportBufferMetrics(buffers)
+            if (closed.get() || failure != null || processingFailure.get() != null) ingress.abort() else ingress.finish()
+            var interrupted = false
+            while (processor.isAlive) {
+                try {
+                    processor.join()
+                } catch (_: InterruptedException) {
+                    interrupted = true
+                    ingress.abort()
+                }
+            }
+            if (interrupted) Thread.currentThread().interrupt()
+            if (failure == null) failure = processingFailure.get()
+            reportBufferMetrics(buffers, ingress)
             stats.flush(ended = true)
             if (socket === sock) socket = null
             safeClose(sock)
@@ -128,16 +171,21 @@ class ScreenStream(
         }
     }
 
-    private fun reportBufferMetrics(buffers: ScreenIngressBufferPool) {
+    private fun reportBufferMetrics(buffers: ScreenIngressBufferPool, ingress: ScreenIngressQueue) {
         val bufferMetrics = buffers.takeWindowMetrics()
+        val ingressMetrics = ingress.takeWindowMetrics()
         runCatching {
             onDiagnostic(
-                ("Video receive buffers mode=serial " +
-                    "reuse=%d alloc=%d retained=%d retainedBytes=%d").format(
+                ("Video receive buffers mode=bounded " +
+                    "reuse=%d alloc=%d retained=%d retainedBytes=%d " +
+                    "ingressMaxDepth=%d ingressMaxBytes=%d ingressProducerWaitMaxMs=%d").format(
                     bufferMetrics.reusedBuffers,
                     bufferMetrics.allocatedBuffers,
                     bufferMetrics.retainedBuffers,
                     bufferMetrics.retainedBytes,
+                    ingressMetrics.maxDepth,
+                    ingressMetrics.maxBytes,
+                    ingressMetrics.maxProducerWaitNs / 1_000_000,
                 ),
             )
         }
@@ -226,6 +274,8 @@ class ScreenStream(
         const val OP_VIDEO_FRAME = 0
         const val OP_VIDEO_CONFIG = 1
         const val MAX_BODY = 8 * 1024 * 1024
+        const val INGRESS_MAX_MESSAGES = 2
+        const val INGRESS_MAX_BYTES = 1024 * 1024L
         const val QUEUE_REPORT_INTERVAL_NS = 5_000_000_000L
     }
 }

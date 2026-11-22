@@ -33,7 +33,7 @@ class ManualHotspotManager(
     security: ManualHotspotSecurity,
     private val onDiagnostic: (String) -> Unit = {},
     private val isCancelled: () -> Boolean = { false },
-) : WirelessHotspotManager {
+) : WirelessHotspotManager, CancellableHotspotStartup {
     private val appContext = context.applicationContext
     private val interfaces = ManualHotspotInterfaces(appContext, onDiagnostic)
     private val waitLock = Object()
@@ -182,6 +182,8 @@ class ManualHotspotManager(
         synchronized(waitLock) { waitLock.notifyAll() }
         interfaces.close()
     }
+
+    override fun cancelStartup() = close()
 
     private fun validateApConfiguration(configuration: ManualApConfiguration?) {
         configuration ?: return

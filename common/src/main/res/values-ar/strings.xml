@@ -25,6 +25,9 @@
     <string name="hotspot_mode_p2p_desc">إعداد بديل. يتطلب تشغيل مفتاح واي فاي السيارة؛ وقد يتقطّع الاتصال على 2.4 GHz.</string>
     <string name="hotspot_details_off">نقطة الاتصال مُغلقة · شغّلها في إعدادات السيارة.</string>
     <string name="hotspot_details_saved">تم حفظ البيانات · تأكد من تشغيل نقطة اتصال السيارة قبل الاتصال.</string>
+    <string name="hotspot_auto_start_details">يشغّل DiPlay نقطة اتصال السيارة عند بدء CarPlay اللاسلكي إذا كانت متوقفة، ثم يوقفها عند انتهاء الجلسة إذا كان هو من شغّلها.</string>
+    <string name="hotspot_auto_start_setup_instructions">افتح إعدادات نقطة اتصال السيارة للاطلاع على الاسم وكلمة المرور وحفظهما هنا. يمكن لـ DiPlay تشغيل النقطة تلقائيًا عند اتصال CarPlay اللاسلكي.</string>
+    <string name="hotspot_auto_start_unavailable">لا تدعم هذه البرامج الثابتة التشغيل التلقائي لنقطة الاتصال. شغّلها من إعدادات السيارة ثم أعد المحاولة.</string>
     <string name="permission_enabled_ready">الإذن مُفعّل · جاهز للاستخدام</string>
     <string name="permission_not_enabled">الإذن غير مُفعّل بعد</string>
     <string name="clipboard_usage_access">وصول استخدام DiPlay</string>
@@ -340,6 +343,7 @@
     <string name="use_a_usb_data_cable_and_unlock_your_iphone_allow_trust_an">استخدم كابل بيانات USB وافتح قفل iPhone.\nاسمح بالثقة وCarPlay إن طلب iPhone ذلك.</string>
     <string name="use_your_last_connection_type_and_selected_iphone">استخدم نوع اتصالك الأخير وiPhone المحدد.</string>
     <string name="vpn_consent_was_denied">رُفضت موافقة VPN</string>
+    <string name="vpn_unavailable_retry">تعذر بدء اتصال VPN المحلي. حاول مجددًا، وإذا استمرت المشكلة فأعد تشغيل جهاز السيارة.</string>
     <string name="waiting_for_iphone_over_usb">بانتظار iPhone عبر USB</string>
     <string name="waiting_for_mfi_coprocessor">بانتظار معالج MFi المساعد</string>
     <string name="waiting_for_paired_iphone">بانتظار iPhone المقترن</string>

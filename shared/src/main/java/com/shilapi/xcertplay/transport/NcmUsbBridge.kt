@@ -464,6 +464,9 @@ class NcmUsbBridge internal constructor(
         private const val MAX_QUEUED_FRAMES = 256
         private const val MAX_QUEUED_BYTES = 1 shl 20
         private const val MAX_CONSECUTIVE_WRITE_FAILURES = 25
+        private const val NCM_CLAIM_ATTEMPTS = 5
+        private const val NCM_CLAIM_RETRY_MILLIS = 100L
+        private const val USBFS_EBUSY = 16
         private const val NANOS_PER_MILLISECOND = 1_000_000L
         private const val REQUEST_DRAIN_TIMEOUT_MILLIS = 2_000L
 
@@ -528,31 +531,53 @@ class NcmUsbBridge internal constructor(
                     " board=${Build.BOARD} hardware=${Build.HARDWARE} legacyEligible=$legacyEligible")
                 var lastClaimErrno: Int? = null
                 fun claim(value: UsbInterface): Boolean {
-                    var nativeOps: LegacyNcmClaim.Native? = null
-                    val trace: (String) -> Unit = { log("ncm claim iface=${describe(value)} $it") }
-                    return LegacyNcmClaim.claim(
-                        eligible = legacyEligible,
-                        framework = { force ->
-                            val res = LegacyUsbHostCompat.claim(connection, value)
-                            lastClaimErrno = res.errno
-                            trace("framework claim force=$force ok=${res.claimed} errno=${res.errno ?: "none"}")
-                            res.claimed
-                        },
-                        native = {
-                            try {
-                                LegacyNcmNative.operations(connection, value.id,
-                                    listOf(function.control.id, function.data.id), expectedConfiguration, trace).also { nativeOps = it }
-                            } catch (error: LinkageError) {
-                                trace("native unavailable: ${error.javaClass.simpleName}")
-                                null
-                            }
-                        },
-                        owned = {
-                            claimed.add(value)
-                            nativeOps?.let { ops -> legacyRestore = { ops.restore() } }
-                        },
-                        log = trace,
-                    )
+                    val attempts = if (realSdkInt() == Build.VERSION_CODES.KITKAT) NCM_CLAIM_ATTEMPTS else 1
+                    for (attempt in 1..attempts) {
+                        var nativeOps: LegacyNcmClaim.Native? = null
+                        var ownershipAcquired = false
+                        lastClaimErrno = null
+                        val trace: (String) -> Unit = { log("ncm claim iface=${describe(value)} $it") }
+                        val success = LegacyNcmClaim.claim(
+                            eligible = legacyEligible,
+                            framework = { force ->
+                                val res = LegacyUsbHostCompat.claim(connection, value)
+                                lastClaimErrno = res.errno
+                                trace("framework claim force=$force ok=${res.claimed} errno=${res.errno ?: "none"}")
+                                res.claimed
+                            },
+                            native = {
+                                try {
+                                    LegacyNcmNative.operations(connection, value.id,
+                                        listOf(function.control.id, function.data.id), expectedConfiguration, trace).also { nativeOps = it }
+                                } catch (error: LinkageError) {
+                                    trace("native unavailable: ${error.javaClass.simpleName}")
+                                    null
+                                }
+                            },
+                            owned = {
+                                if (!claimed.contains(value)) claimed.add(value)
+                                ownershipAcquired = true
+                                nativeOps?.let { ops -> legacyRestore = { ops.restore() } }
+                            },
+                            log = trace,
+                        )
+                        log("ncm claim iface=${describe(value)} attempt=$attempt/$attempts " +
+                            "ok=$success errno=${lastClaimErrno ?: "none"}")
+                        // A failed verification can still mean the interface was acquired; never
+                        // repeat the claim in that case, and let normal cleanup release ownership.
+                        if (success || ownershipAcquired) return success
+                        // A Nissan API 19 replug can briefly leave NCM busy. Retry only EBUSY;
+                        // other failures require a fresh USB discovery or a user action.
+                        if (attempt == attempts || realSdkInt() != Build.VERSION_CODES.KITKAT ||
+                            lastClaimErrno != USBFS_EBUSY) return false
+                        try {
+                            Thread.sleep(NCM_CLAIM_RETRY_MILLIS)
+                        } catch (_: InterruptedException) {
+                            Thread.currentThread().interrupt()
+                            return false
+                        }
+                    }
+                    return false
                 }
                 val descriptorHostMac = readNcmHostMac(connection, function.control.id)
                 Log.i(

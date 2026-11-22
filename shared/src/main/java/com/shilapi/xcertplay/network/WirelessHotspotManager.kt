@@ -52,6 +52,11 @@ interface WirelessHotspotManager : Closeable {
     fun connectionDiagnosticSnapshot(): String = "association=not_exposed"
 }
 
+/** Allows controller shutdown to interrupt a hotspot manager while [start] is still waiting. */
+interface CancellableHotspotStartup {
+    fun cancelStartup()
+}
+
 /**
  * Converts IEEE 802.11 frequency in MHz to its channel number.
  *

@@ -27,6 +27,9 @@ import java.net.ServerSocket
 import java.net.Socket
 import java.util.concurrent.atomic.AtomicBoolean
 
+/** Android did not establish a TUN; the caller must recheck VPN preparation. */
+class VpnAuthorizationRequiredException : IOException("VpnService.establish returned null")
+
 /**
  * Hosts the AirPlay TCP listener for both NCM/VPN and local-only Wi-Fi transports.
  *
@@ -41,7 +44,7 @@ class CarPlayVpnService : VpnService() {
     sealed class AttachResult {
         data object Started : AttachResult()
         data object AlreadyStarted : AttachResult()
-        data class Failed(val message: String) : AttachResult()
+        data class Failed(val message: String, val vpnPreparationRequired: Boolean = false) : AttachResult()
     }
 
     private data class AirPlayAttachment(
@@ -77,7 +80,22 @@ class CarPlayVpnService : VpnService() {
      */
     @Volatile private var perAppVpnUnsupported = false
 
-    override fun onBind(intent: Intent?): IBinder = binder
+    override fun onBind(intent: Intent?): IBinder? =
+        if (intent?.action == SERVICE_INTERFACE) super.onBind(intent) else binder
+
+    override fun onRevoke() {
+        // Wireless uses this service only as an AirPlay listener and has no VPN to revoke.
+        val listener = synchronized(this) {
+            if (tun == null && bridge == null) null else {
+                val current = attachment?.listener
+                releaseLocked()
+                current
+            }
+        }
+        runCatching { listener?.onDebugLog("wired VPN authorization revoked by Android") }
+        runCatching { listener?.onTransportError("VPN authorization revoked") }
+        super.onRevoke()
+    }
 
     @Synchronized
     fun attach(
@@ -168,7 +186,7 @@ class CarPlayVpnService : VpnService() {
                     // translate the cryptic netd line into an actionable hint.
                     throw withWedgedVpnHint(error)
                 }
-            } ?: throw IOException("VpnService.establish returned null")
+            } ?: throw VpnAuthorizationRequiredException()
             tun = tunFd
             runCatching { listener.onDebugLog("wired VPN TUN established address=$linkLocal mtu=$TUN_MTU") }
             if (realSdkInt() < Build.VERSION_CODES.LOLLIPOP) LegacyTunBlocking.enable(tunFd)
@@ -210,7 +228,10 @@ class CarPlayVpnService : VpnService() {
             Log.e(TAG, "wired VPN/NCM attach failed: $lastAttachFailure", error)
             runCatching { listener.onDebugLog("wired VPN/NCM attach failed: $lastAttachFailure") }
             releaseLocked()
-            AttachResult.Failed(error.message ?: error.javaClass.simpleName)
+            AttachResult.Failed(
+                error.message ?: error.javaClass.simpleName,
+                vpnPreparationRequired = error is VpnAuthorizationRequiredException,
+            )
         }
     }
 
@@ -254,6 +275,19 @@ class CarPlayVpnService : VpnService() {
     fun detach() {
         releaseLocked()
     }
+
+    /**
+     * Stops a wired NCM/VPN attachment only if no AirPlay TCP session has been accepted.
+     * The service monitor also serializes this check with acceptLoop's session registration.
+     */
+    @Synchronized
+    fun detachIfNoAirPlaySessions(): Boolean {
+        if (hasAirPlaySessions()) return false
+        releaseLocked()
+        return true
+    }
+
+    fun hasAirPlaySessions(): Boolean = synchronized(sessionsLock) { sessions.isNotEmpty() }
 
     @Synchronized
     fun detachWireless(owner: AirPlayListenerIdentity) {

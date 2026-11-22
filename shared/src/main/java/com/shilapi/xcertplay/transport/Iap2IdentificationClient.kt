@@ -57,6 +57,8 @@ data class Iap2IdentificationConfig(
     val chargingConnectors: EvChargingConnectors = EvChargingConnectors.CCS2_TYPE2,
     /** Also offer wheel speed ($PASCD) in the location component; needs [locationInformationEnabled]. */
     val vehicleSpeedEnabled: Boolean = false,
+    /** Accept lane guidance on a display that can consume its text. */
+    val laneGuidanceEnabled: Boolean = false,
 ) {
     constructor(
         name: String,
@@ -129,6 +131,7 @@ internal fun Iap2IdentificationConfig.forWirelessLink(
             locationInformationEnabled = false,
             vehicleStatusEnabled = false,
             vehicleSpeedEnabled = false,
+            laneGuidanceEnabled = false,
         )
         Iap2WirelessLinkRole.RUNTIME_TUNNEL -> wirelessConfig
     }
@@ -204,6 +207,7 @@ class Iap2IdentificationClient(private val session: Iap2Session) {
             } else {
                 MESSAGES_RECEIVED_FROM_PHONE
             }
+            if (config.laneGuidanceEnabled) receivedMessages += 0x5204
             if (config.vehicleStatusEnabled) {
                 sentMessages += Iap2VehicleStatus.VEHICLE_STATUS_UPDATE
                 receivedMessages += intArrayOf(

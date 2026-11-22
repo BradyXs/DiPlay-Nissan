@@ -3,10 +3,11 @@ package com.shilapi.xcertplay.media
 import android.media.AudioFormat as AndroidAudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
-import android.os.Build
 import android.media.audiofx.AcousticEchoCanceler
 import android.media.audiofx.AudioEffect
 import android.media.audiofx.NoiseSuppressor
+import android.os.Build
+import android.os.Process
 import android.util.Log
 import com.shilapi.xcertplay.airplay.AirPlaySocketBinder
 import com.shilapi.xcertplay.airplay.AudioCodecKind
@@ -199,9 +200,17 @@ internal class MicrophoneUplink(
             }
             trace("recording-begin", startedNs,
                 "state=${nextRecorder.state} recordingState=${nextRecorder.recordingState}")
+            val recordingCallStartedNs = System.nanoTime()
             nextRecorder.startRecording()
+            val recordingCallDurationMs =
+                ((System.nanoTime() - recordingCallStartedNs).coerceAtLeast(0L) / 1_000_000L)
             trace("recording-end", startedNs,
-                "state=${nextRecorder.state} recordingState=${nextRecorder.recordingState}")
+                "durationMs=$recordingCallDurationMs state=${nextRecorder.state} " +
+                    "recordingState=${nextRecorder.recordingState}")
+            if (recordingCallDurationMs >= SLOW_START_RECORDING_LOG_THRESHOLD_MS) {
+                onDiagnostic("Microphone: AudioRecord.startRecording delayed durationMs=$recordingCallDurationMs " +
+                    "audioType=${config.audioType} source=$source")
+            }
             // On some API 19 head units startRecording() can block while the call is ending.
             // onMicrophoneStopped() may close the recorder and socket during that call; do not
             // launch a capture worker against the already closed stream when it finally returns.
@@ -351,7 +360,18 @@ internal class MicrophoneUplink(
 
     private fun capture(recorder: AudioRecord, socket: DatagramSocket) {
         val frame = ByteArray(config.frameBytes)
-        val readBuffer = ByteArray(maxOf(frame.size, MIN_READ_BYTES))
+        // Read one negotiated CarPlay frame at a time. A larger read request can batch multiple
+        // short call frames together and adds avoidable capture-to-send latency.
+        val readBuffer = ByteArray(frame.size)
+        val audioPriorityApplied = runCatching {
+            Process.setThreadPriority(Process.THREAD_PRIORITY_AUDIO)
+            true
+        }.getOrDefault(false)
+        runCatching {
+            onDiagnostic("Microphone: capture scheduling priority=audio " +
+                "level=${Process.THREAD_PRIORITY_AUDIO} applied=$audioPriorityApplied " +
+                "readBufferBytes=${readBuffer.size}")
+        }
         val counters = MicrophoneCounters()
         val routeInfo = { routeType(recorder) }
         var canceller = echoCanceller
@@ -564,7 +584,7 @@ internal class MicrophoneUplink(
 
     private companion object {
         const val TAG = "xcertplay-usb"
-        const val MIN_READ_BYTES = 2_048
+        const val SLOW_START_RECORDING_LOG_THRESHOLD_MS = 500L
         const val CLOSE_JOIN_MILLIS = 500L
         const val ECHO_TAIL_MILLIS = 250
         const val ECHO_REFERENCE_LEAD_NS = 30_000_000L

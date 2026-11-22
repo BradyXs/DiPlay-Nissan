@@ -26,6 +26,8 @@ class CarPlayPlaybackStatus {
         private set
 
     val playing: Boolean get() = nowPlaying.playing
+    var hasPlaybackStatus: Boolean = false
+        private set
 
     /** The complete new retained state when this frame changed it, otherwise null. */
     fun acceptUpdate(frame: Iap2Frame): CarPlayNowPlaying? {
@@ -33,6 +35,7 @@ class CarPlayPlaybackStatus {
         val body = runCatching { Iap2BodyReader.of(frame) }.getOrNull() ?: return null
         val media = runCatching { body.optionalGroup(MEDIA_ITEM) }.getOrNull()
         val playback = runCatching { body.optionalGroup(PLAYBACK) }.getOrNull()
+        if (playback?.has(STATUS) == true) hasPlaybackStatus = true
         val previous = nowPlaying
         val next = previous.copy(
             title = media.updatedString(TITLE, previous.title),
@@ -65,9 +68,10 @@ class CarPlayPlaybackStatus {
 
     /** Clears all retained metadata at the end of a CarPlay session. */
     fun clearAll(): CarPlayNowPlaying? {
-        if (nowPlaying == CarPlayNowPlaying()) return null
+        val changed = nowPlaying != CarPlayNowPlaying()
         nowPlaying = CarPlayNowPlaying()
-        return nowPlaying
+        hasPlaybackStatus = false
+        return nowPlaying.takeIf { changed }
     }
 
     private fun Iap2BodyReader?.updatedString(id: Int, previous: String?): String? {

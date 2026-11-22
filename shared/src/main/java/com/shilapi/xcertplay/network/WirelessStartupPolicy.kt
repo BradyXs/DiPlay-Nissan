@@ -12,6 +12,12 @@ object WirelessStartupPolicy {
     const val STABLE_SESSION_MILLIS = 60_000L
 }
 
-enum class WirelessStartupFailure { HOTSPOT_NOT_READY, FIRST_TCP_TIMEOUT, SESSION_AFTER_TCP_TIMEOUT, HOTSPOT_CONFIGURATION }
+enum class WirelessStartupFailure {
+    HOTSPOT_NOT_READY,
+    HOTSPOT_CONTROL_UNAVAILABLE,
+    FIRST_TCP_TIMEOUT,
+    SESSION_AFTER_TCP_TIMEOUT,
+    HOTSPOT_CONFIGURATION,
+}
 
 class WirelessStartupException(val reason: WirelessStartupFailure, message: String) : IOException(message)

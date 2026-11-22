@@ -9,10 +9,13 @@ internal sealed interface VideoJob {
     data class Config(val codec: VideoCodec, val codecData: ByteArray) : VideoJob
     data class Frame(
         val nalus: ByteArray,
-        val receivedNs: Long = System.nanoTime(),
+        /** When the already-decrypted frame was handed to the decoder work queue. */
+        val enqueuedNs: Long = System.nanoTime(),
         /** The iPhone's frame time and when the frame arrived (System.nanoTime), 0 when unknown. */
         val senderNanos: Long = 0L,
         val arrivalNanos: Long = 0L,
+        /** A recovery anchor selected from the queue; submit it even if its timestamp is old. */
+        val recoveryAnchor: Boolean = false,
     ) : VideoJob
     data class SurfaceChanged(val surface: Surface?) : VideoJob
     /** Stop rendering to a surface that is going away; completes [request] once the codec has let go. */
@@ -38,6 +41,12 @@ internal class VideoDecodeQueue(
     private val maxFrames: Int = 60,
     private val maxBytes: Int = 8 * 1024 * 1024,
 ) {
+    data class RecoveryPrune(
+        val droppedFrames: Int,
+        val retainedFrames: Int,
+        val anchorQueued: Boolean,
+    )
+
     private val jobs = LinkedBlockingQueue<VideoJob>()
 
     @Synchronized fun offer(job: VideoJob) {
@@ -59,6 +68,48 @@ internal class VideoDecodeQueue(
             val item = iterator.next()
             if (item is VideoJob.Frame || item is VideoJob.Resync) iterator.remove()
         }
+    }
+
+    /**
+     * On a stale decoder backlog, keep the newest queued IDR/IRAP and the dependent frames after it.
+     * A later codec config or overflow marker invalidates any earlier random-access frame.
+     */
+    @Synchronized fun retainLatestRandomAccess(codec: VideoCodec): RecoveryPrune {
+        val snapshot = jobs.toList()
+        val frameCount = snapshot.count { it is VideoJob.Frame }
+        var lastReferenceReset = -1
+        snapshot.forEachIndexed { index, job ->
+            if (job is VideoJob.Config || job is VideoJob.Resync) lastReferenceReset = index
+        }
+        val anchorIndex = snapshot.indices.lastOrNull { index ->
+            index > lastReferenceReset &&
+                (snapshot[index] as? VideoJob.Frame)?.let { MediaCodecSupport.isRandomAccess(it.nalus, codec) } == true
+        }
+        if (anchorIndex == null) {
+            discardFrames()
+            return RecoveryPrune(droppedFrames = frameCount, retainedFrames = 0, anchorQueued = false)
+        }
+
+        val retained = ArrayList<VideoJob>(snapshot.size)
+        var retainedFrames = 0
+        snapshot.forEachIndexed { index, job ->
+            when {
+                job is VideoJob.Resync -> Unit
+                job is VideoJob.Frame && index < anchorIndex -> Unit
+                job is VideoJob.Frame -> {
+                    retainedFrames++
+                    retained += if (index == anchorIndex) job.copy(recoveryAnchor = true) else job
+                }
+                else -> retained += job
+            }
+        }
+        jobs.clear()
+        jobs.addAll(retained)
+        return RecoveryPrune(
+            droppedFrames = frameCount - retainedFrames,
+            retainedFrames = retainedFrames,
+            anchorQueued = true,
+        )
     }
 
     fun poll(timeoutMillis: Long): VideoJob? = jobs.poll(timeoutMillis, TimeUnit.MILLISECONDS)

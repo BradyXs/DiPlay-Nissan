@@ -1,5 +1,7 @@
 package com.shilapi.xcertplay.transport
 
+import com.shilapi.xcertplay.network.VpnAuthorizationRequiredException
+
 import com.shilapi.xcertplay.iap2.message.Iap2CarPlayMessages
 import com.shilapi.xcertplay.iap2.message.Iap2ControlMessages
 import com.shilapi.xcertplay.iap2.session.Iap2Session
@@ -40,6 +42,10 @@ class Iap2WiredControlClient(
         airPlayTcpArrived: () -> Boolean = { true },
         /** A live media stream keeps the wired session alive even when iAP2 sends no frames. */
         airPlayDataRecent: (() -> Boolean)? = null,
+        /** True while an accepted AirPlay TCP connection is still establishing its session. */
+        airPlayConnectionPending: () -> Boolean = { false },
+        /** Rebuild only NCM/VPN while retaining the authenticated iAP2/USB session. */
+        reattachNcmVpn: ((Iap2WiredCarPlayEndpoint) -> Iap2WiredCarPlayEndpoint?)? = null,
     ): Iap2WiredControlResult {
         require(availableCurrentMilliAmps in 0..0xffff) {
             "availableCurrentMilliAmps must be in 0..65535"
@@ -69,8 +75,31 @@ class Iap2WiredControlClient(
         var forwardedFrames = 0
         var carPlayStartSessions = 0
         var startSessionNanos = 0L
+        var lastReceivedMessageId: Int? = null
+        var lastReceivedAtNanos: Long? = null
+        var activeEndpoint = endpoint
         var sameLinkRefreshSent = false
+        var ncmVpnReattachAttempted = false
+        var pendingConnectionLogged = false
         var keptLinkAfterSilence = false
+        fun channelClosedResult(): Iap2WiredControlResult {
+            val lastRx = lastReceivedMessageId?.let {
+                "0x${it.toString(16).padStart(4, '0')}"
+            } ?: "none"
+            val lastRxAgeMs = lastReceivedAtNanos?.let { receivedAt ->
+                ((System.nanoTime() - receivedAt) / NANOS_PER_MILLISECOND).coerceAtLeast(0L).toString()
+            } ?: "none"
+            onProgress(
+                "wired channel closed stage=${stage.name} lastRx=$lastRx " +
+                    "lastRxAgeMs=$lastRxAgeMs forwarded=$forwardedFrames starts=$carPlayStartSessions",
+            )
+            return Iap2WiredControlResult(
+                Iap2WiredControlTerminal.CHANNEL_CLOSED,
+                stage,
+                forwardedFrames,
+                carPlayStartSessions,
+            )
+        }
         // Issue #84/#61: the live loop previously had no dead-link detection — once the
         // iPhone went quiet, recv kept timing out and the UI sat on "控制通道运行中" forever.
         val silenceMonitor = Iap2PeerSilenceMonitor(peerSilentResetMillis, peerIdleDiagnosticMillis)
@@ -88,11 +117,55 @@ class Iap2WiredControlClient(
                         // Keep a healthy USBMUX/iAP2/NCM/VPN stack and refresh the existing
                         // StartSession once before escalating to USB re-enumeration. The same
                         // 0x4301 message is already used for every phone availability event.
-                        send(carPlayStartSession(endpoint), deadlineNanos)
+                        send(carPlayStartSession(activeEndpoint), deadlineNanos)
                         carPlayStartSessions++
                         sameLinkRefreshSent = true
                         onProgress("iap2 tx=0x4301 carplay-start-session same-link-retry=1")
                         continue
+                    }
+                    if (reattachNcmVpn != null && !ncmVpnReattachAttempted &&
+                        sessionWaitMillis >= WIRED_NCM_REATTACH_MILLIS
+                    ) {
+                        if (airPlayConnectionPending()) {
+                            if (!pendingConnectionLogged) {
+                                pendingConnectionLogged = true
+                                onProgress("iap2 wired NCM/VPN reattach deferred: AirPlay TCP session is still pending")
+                            }
+                        } else {
+                            onProgress(
+                                "iap2 wired no AirPlay session ${sessionWaitMillis}ms after StartSession; " +
+                                    "trying one NCM/VPN reattach while keeping iAP2/USB",
+                            )
+                            val replacement = try {
+                                reattachNcmVpn(activeEndpoint)
+                            } catch (failure: Exception) {
+                                if (failure is VpnAuthorizationRequiredException) throw failure
+                                onProgress("iap2 wired NCM/VPN reattach failed: ${failure.javaClass.simpleName}")
+                                null
+                            }
+                            if (replacement != null) {
+                                activeEndpoint = replacement
+                                ncmVpnReattachAttempted = true
+                                pendingConnectionLogged = false
+                                send(carPlayStartSession(activeEndpoint), deadlineNanos)
+                                carPlayStartSessions++
+                                startSessionNanos = System.nanoTime()
+                                sameLinkRefreshSent = false
+                                onProgress("iap2 tx=0x4301 carplay-start-session after-ncm-vpn-reattach")
+                                continue
+                            }
+                            // An accepted TCP connection may have raced the recovery callback.
+                            // Keep its session attempt alive instead of tearing down the USB path.
+                            if (airPlayConnectionPending()) {
+                                pendingConnectionLogged = true
+                            } else {
+                                ncmVpnReattachAttempted = true
+                                onProgress("iap2 wired NCM/VPN reattach unavailable; escalating to USB recovery")
+                                return Iap2WiredControlResult(
+                                    Iap2WiredControlTerminal.NO_AIRPLAY_TCP, stage, forwardedFrames, carPlayStartSessions,
+                                )
+                            }
+                        }
                     }
                     if (sessionWaitMillis >= WIRED_FIRST_TCP_MILLIS) {
                         onProgress(
@@ -125,23 +198,13 @@ class Iap2WiredControlClient(
                     session.recv(pollTimeout)
                 } catch (failure: IOException) {
                     if (session.isClosed) {
-                        return Iap2WiredControlResult(
-                            Iap2WiredControlTerminal.CHANNEL_CLOSED,
-                            stage,
-                            forwardedFrames,
-                            carPlayStartSessions,
-                        )
+                        return channelClosedResult()
                     }
                     throw failure
                 }
                 if (incoming == null) {
                     if (session.isClosed) {
-                        return Iap2WiredControlResult(
-                            Iap2WiredControlTerminal.CHANNEL_CLOSED,
-                            stage,
-                            forwardedFrames,
-                            carPlayStartSessions,
-                        )
+                        return channelClosedResult()
                     }
                     if (remainingMillis(deadlineNanos) == 0L) {
                         return Iap2WiredControlResult(
@@ -172,6 +235,8 @@ class Iap2WiredControlClient(
                     }
                     continue
                 }
+                lastReceivedMessageId = incoming.messageId
+                lastReceivedAtNanos = System.nanoTime()
                 silenceMonitor.onFrameReceived()
                 keptLinkAfterSilence = false
 
@@ -181,7 +246,7 @@ class Iap2WiredControlClient(
                         onProgress(carPlayAvailabilitySummary(incoming.payload))
                         // LIVI sends its wired answer on every availability notification; do not gate it on
                         // the phone's advertised availability boolean.
-                        send(carPlayStartSession(endpoint), deadlineNanos)
+                        send(carPlayStartSession(activeEndpoint), deadlineNanos)
                         stage = Iap2WiredControlStage.CARPLAY_START_SENT
                         carPlayStartSessions++
                         if (startSessionNanos == 0L) startSessionNanos = System.nanoTime()
@@ -230,6 +295,8 @@ class Iap2WiredControlClient(
         private const val WIRED_FIRST_TCP_MILLIS = 30_000L
         /** Refresh a still-live iAP2 session once before rebuilding the wired USB stack. */
         private const val WIRED_SAME_LINK_REFRESH_MILLIS = 12_000L
+        /** Try an in-place NCM/VPN reattach after the same-link StartSession retry. */
+        private const val WIRED_NCM_REATTACH_MILLIS = 24_000L
 
         /** Exact LIVI wired PowerSourceUpdate encoding: current and the charge-if-powered flag. */
         fun powerSourceUpdate(availableCurrentMilliAmps: Int): Iap2Frame =

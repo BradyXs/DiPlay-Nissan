@@ -25,6 +25,9 @@
     <string name="hotspot_mode_p2p_desc">备选方案。需要打开车机 Wi-Fi 开关；2.4 GHz 连接可能会卡顿。</string>
     <string name="hotspot_details_off">热点已关闭 · 请在车机设置中开启。</string>
     <string name="hotspot_details_saved">详情已保存 · 连接前请确认车载热点已开启。</string>
+    <string name="hotspot_auto_start_details">无线连接时如果车载热点关闭，DiPlay 会自动开启；由 DiPlay 开启的热点会在连接结束后关闭。</string>
+    <string name="hotspot_auto_start_setup_instructions">打开车机热点设置，查看热点名称和密码并保存到这里。无线 CarPlay 连接时，DiPlay 会自动开启已关闭的热点。</string>
+    <string name="hotspot_auto_start_unavailable">当前固件不支持自动开启热点。请在车机设置中开启热点后重试。</string>
     <string name="permission_enabled_ready">权限已启用 · 可以使用</string>
     <string name="permission_not_enabled">权限尚未启用</string>
     <string name="clipboard_usage_access">DiPlay 使用情况访问权限</string>
@@ -351,6 +354,7 @@
     <string name="use_a_usb_data_cable_and_unlock_your_iphone_allow_trust_an">请使用 USB 数据线并解锁 iPhone。\niPhone 出现提示时允许“信任”和使用 CarPlay。</string>
     <string name="use_your_last_connection_type_and_selected_iphone">使用上次的连接方式和已选 iPhone。</string>
     <string name="vpn_consent_was_denied">VPN 授权被拒绝</string>
+    <string name="vpn_unavailable_retry">本地 VPN 无法启动，请重试；如果问题持续，请重启车机。</string>
     <string name="waiting_for_iphone_over_usb">正在等待 USB 连接的 iPhone</string>
     <string name="waiting_for_mfi_coprocessor">正在等待 MFi 协处理器</string>
     <string name="waiting_for_paired_iphone">正在等待已配对的 iPhone</string>

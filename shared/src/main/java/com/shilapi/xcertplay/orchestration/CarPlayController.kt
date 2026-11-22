@@ -7,6 +7,7 @@ import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothHeadset
 import android.bluetooth.BluetoothProfile
 import com.shilapi.xcertplay.compat.BluetoothCompat
+import com.shilapi.xcertplay.compat.MemoryPressureSnapshot
 import com.shilapi.xcertplay.compat.realSdkInt
 import com.shilapi.xcertplay.bluetooth.BluetoothAddressResolver
 import com.shilapi.xcertplay.bluetooth.AnwPhoneLinkSnapshot
@@ -46,10 +47,13 @@ import com.shilapi.xcertplay.mfi.MfiAuthenticationClient
 import com.shilapi.xcertplay.mfi.RemoteMfiAuthenticationClient
 import com.shilapi.xcertplay.mfi.LocalMfiAuthenticationClient
 import com.shilapi.xcertplay.network.CarPlayBonjour
+import com.shilapi.xcertplay.network.CancellableHotspotStartup
 import com.shilapi.xcertplay.network.diagnosticSummary
 import com.shilapi.xcertplay.network.CarPlayVpnService
+import com.shilapi.xcertplay.network.VpnAuthorizationRequiredException
 import com.shilapi.xcertplay.network.LegacyWifiP2pGroupManager
 import com.shilapi.xcertplay.network.ManualHotspotManager
+import com.shilapi.xcertplay.network.NissanFirmwareHotspotManager
 import com.shilapi.xcertplay.network.ExistingWifiManager
 import com.shilapi.xcertplay.network.WifiP2pGroupManager
 import com.shilapi.xcertplay.network.WirelessHotspotInfo
@@ -148,6 +152,7 @@ sealed class CarPlayStatus {
 
 enum class CarPlayRecoveryAction {
     FORCE_WIRED_USB_REENUMERATION,
+    RECHECK_WIRED_VPN_PREPARATION,
 }
 
 internal fun isWirelessHandoffInProgress(
@@ -185,6 +190,7 @@ class CarPlayController(
     private val onNavigationUpdate: () -> Unit = {},
     private val onAirPlayDucking: (Boolean) -> Unit = {},
     private val forceWiredUsbReenumerationAtStart: Boolean = false,
+    private val onAirPlayDuckSessionReset: () -> Unit = {},
 ) : Closeable {
     init {
         require(!config.locationReportingEnabled || locationProvider != null) {
@@ -252,6 +258,11 @@ class CarPlayController(
     private var firmwareHfpSession: com.shilapi.xcertplay.media.NissanHfpSessionClient? = null
     private val playbackStatus = com.shilapi.xcertplay.media.CarPlayPlaybackStatus()
     private val callState = CarPlayCallState()
+    private var reconnectPlaybackWasPlayingHint: Boolean? = null
+    private var reconnectPlaybackHintAtMs = 0L
+    private var resumeMediaAfterCall = false
+    private var mediaCommandGeneration = 0
+    private var resumeMediaScheduledGeneration: Int? = null
     private val phoneIdentityDiagnosticRunning = java.util.concurrent.atomic.AtomicBoolean(false)
     // Guard key events that straddle the final call-state update; protected by callState.
     private var lastCallEndedAtMs = 0L
@@ -264,6 +275,9 @@ class CarPlayController(
 
     /** Told when an iAP2 Now Playing artwork transfer completes; may run on the link worker. */
     @Volatile var artworkListener: ((Int, ByteArray) -> Unit)? = null
+
+    /** Receives raw CarPlay route-guidance frames for a metadata consumer; may run on any thread. */
+    @Volatile var navigationFrameListener: ((com.shilapi.xcertplay.iap2.wire.Iap2Frame) -> Unit)? = null
 
     @Volatile private var hotspot: WirelessHotspotManager? = null
     @Volatile private var bonjour: CarPlayBonjour? = null
@@ -314,22 +328,48 @@ class CarPlayController(
 
     private val sessionListener = object : AirPlaySessionListener {
         override fun onSessionActive(session: AirPlaySession) {
-            if (activeSession !== session) synchronized(callState) { callState.clear(); lastCallEndedAtMs = 0L }
+            if (activeSession !== session) {
+                onAirPlayDuckSessionReset()
+            }
             activeSession = session
+            val pendingCall = synchronized(callState) {
+                if (callState.current() == null) lastCallEndedAtMs = 0L
+                callState.current()
+            }
+            firmwareHfpSession?.refresh()
             if (config.transport == CarPlayTransport.WIRED) wiredTcpArrived.set(true)
             debugLog(
                 "AirPlay session active controller=${session.controllerId ?: "unknown"} " +
                     "peer=${session.host}",
             )
+            debugLog("memory snapshot point=airplay-session-active ${MemoryPressureSnapshot.describe(appContext)}")
+            if (pendingCall != null && nissanCarPlayAudioMode) {
+                onCallMediaActiveChanged(true)
+                debugLog("Call media: session recovered during phase=${pendingCall.phase}; " +
+                    "pause queued=${sendMediaButton(com.shilapi.xcertplay.airplay.CarPlayMediaButton.PAUSE)}")
+            } else if (nissanCarPlayAudioMode) {
+                resumeMediaAfterCallIfNeeded()
+            }
             diagnoseNissanPhoneIdentity(session, "session-active")
             uiListener?.onSessionActive(session)
         }
 
         override fun onSessionEnded(session: AirPlaySession) {
             if (activeSession === session) {
-                onAirPlayDucking(false)
+                onAirPlayDuckSessionReset()
                 activeSession = null
-                synchronized(callState) { callState.clear(); lastCallEndedAtMs = 0L }
+                if (config.transport == CarPlayTransport.WIRED) {
+                    wiredTcpArrived.set(false)
+                    debugLog("wired AirPlay session ended; clearing control-loop liveness marker")
+                }
+                firmwareHfpSession?.refresh()
+                val pendingCall = synchronized(callState) { callState.current() }
+                if (pendingCall != null) {
+                    debugLog("Call media: CarPlay session ended during phase=${pendingCall.phase}; " +
+                        "retaining call state for reconnect")
+                } else {
+                    synchronized(callState) { lastCallEndedAtMs = 0L }
+                }
                 synchronized(playbackStatus) {
                     val wasPlaying = playbackStatus.playing
                     playbackStatus.clearAll()?.let { it to wasPlaying }
@@ -451,6 +491,20 @@ class CarPlayController(
 
     fun isWirelessSession(): Boolean = config.transport == CarPlayTransport.WIRELESS
 
+    /** Carries a recent playing state across a full-stack reconnect, for an in-flight call. */
+    fun seedReconnectPlaybackHint(playing: Boolean?) {
+        reconnectPlaybackWasPlayingHint = playing
+        reconnectPlaybackHintAtMs = SystemClock.elapsedRealtime()
+        debugLog("Call media: reconnect playback hint available=${playing != null} playing=$playing")
+    }
+
+    /** Ask the paired Nissan firmware to keep this wired phone's HFP request gate briefly on loss. */
+    fun preserveNissanHfpGateForReconnect() {
+        if (!closed && config.transport == CarPlayTransport.WIRED) {
+            firmwareHfpSession?.preserveForReconnect()
+        }
+    }
+
     /** Nonblocking identity for wheel controls: only an unclosed phone with an accepted primary stream. */
     fun activeAirPlaySessionToken(): Any? {
         if (closed) return null
@@ -504,6 +558,7 @@ class CarPlayController(
             if (closed) return
         }
         connectionDiagnostic("start transport=${config.transport}")
+        connectionDiagnostic("memory snapshot point=controller-start ${MemoryPressureSnapshot.describe(appContext)}")
         if (config.transport == CarPlayTransport.WIRED && firmwareHfpSession == null &&
             AnwPhoneLinkSnapshot.isInstalled(appContext)) {
             firmwareHfpSession = com.shilapi.xcertplay.media.NissanHfpSessionClient(appContext, {
@@ -619,8 +674,23 @@ class CarPlayController(
         }
     }
 
-    fun sendMediaButton(index: Int): Boolean {
+    fun sendMediaButton(index: Int, userInitiated: Boolean = false): Boolean {
         if (closed) return false
+        if (userInitiated) synchronized(callState) {
+            mediaCommandGeneration++
+            // A manual media command supersedes any delayed automatic PLAY.
+            resumeMediaScheduledGeneration = null
+            if (callState.current() != null || resumeMediaAfterCall) {
+                resumeMediaAfterCall = when (index) {
+                    com.shilapi.xcertplay.airplay.CarPlayMediaButton.PAUSE -> false
+                    com.shilapi.xcertplay.airplay.CarPlayMediaButton.PLAY -> true
+                    com.shilapi.xcertplay.airplay.CarPlayMediaButton.PLAY_PAUSE ->
+                        !synchronized(playbackStatus) { playbackStatus.playing }
+                    else -> true
+                }
+                debugLog("Call media: user command updated resume intent=$resumeMediaAfterCall")
+            }
+        }
         val session = activeSession ?: return false
         return try {
             touchExecutor.execute { session.sendMedia(index) }
@@ -637,10 +707,15 @@ class CarPlayController(
         }
         firmwareHfpSession?.close()
         firmwareHfpSession = null
-        synchronized(callState) { callState.clear(); lastCallEndedAtMs = 0L }
+        synchronized(callState) {
+            callState.clear()
+            lastCallEndedAtMs = 0L
+            resumeMediaAfterCall = false
+            resumeMediaScheduledGeneration = null
+        }
         firstTcpWatchdog?.terminate()
         startupTimer.shutdownNow()
-        (hotspot as? ManualHotspotManager)?.close()
+        (hotspot as? CancellableHotspotStartup)?.cancelStartup()
         val teardownStarted = System.nanoTime()
         connectionDiagnostic("teardown begin transport=${config.transport}")
         closeReceivers()
@@ -708,6 +783,8 @@ class CarPlayController(
     // Route and media metadata stay separate so a malformed update cannot block video or transport work.
     private fun onRouteFrame(frame: com.shilapi.xcertplay.iap2.wire.Iap2Frame) {
         if (frame.messageId == 0x5201 || frame.messageId == 0x5202 || frame.messageId == 0x5204) {
+            runCatching { navigationFrameListener?.invoke(frame) }
+                .onFailure { debugLog("navigation metadata callback failed class=${it.javaClass.simpleName}") }
             onNavigationUpdate()
         }
         if (frame.messageId == CarPlayCallState.CALL_STATE_UPDATE && !closed) {
@@ -717,17 +794,27 @@ class CarPlayController(
                     val current = callState.current()
                     if (previous != null && current == null) lastCallEndedAtMs = SystemClock.elapsedRealtime()
                     else if (current != null) lastCallEndedAtMs = 0L
-                    Pair(Triple(status, current?.phase, callState.count()), previous != current)
+                    Pair(
+                        Triple(status, current?.phase, callState.count()),
+                        Triple(previous != current, previous == null && current != null, previous != null && current == null),
+                    )
                 }
             }
             if (update != null) {
-                val (state, changed) = update
+                val (state, transition) = update
+                val changed = transition.first
                 debugLog("iAP2 call state status=${state.first} phase=${state.second ?: "ENDED"} count=${state.third}")
+                // Capture before queuing PAUSE. During recovery, the next callback can already
+                // report paused because call setup stopped playback.
+                if (nissanCarPlayAudioMode && transition.second) captureCallResumeIntent()
                 if (changed && nissanCarPlayAudioMode) {
                     onCallMediaActiveChanged(state.second != null)
                     if (state.second != null) {
                         debugLog("Call media: pause on phase=${state.second} queued=${sendMediaButton(com.shilapi.xcertplay.airplay.CarPlayMediaButton.PAUSE)}")
                     }
+                }
+                if (nissanCarPlayAudioMode) {
+                    if (transition.third) resumeMediaAfterCallIfNeeded()
                 }
                 if (state.second == CarPlayCallPhase.RINGING) {
                     activeSession?.let { diagnoseNissanPhoneIdentity(it, "call-ringing") }
@@ -741,10 +828,134 @@ class CarPlayController(
             playbackStatus.acceptUpdate(frame)?.let { it to (it.playing != previousPlaying) }
         }?.let { (update, playingChanged) ->
             nowPlayingListener?.invoke(update)
-            if (playingChanged) playbackListener?.invoke(update.playing)
+            if (playingChanged) {
+                debugLog("iAP2 playback state playing=${update.playing} callActive=${currentCallSnapshot() != null}")
+                playbackListener?.invoke(update.playing)
+            }
             if (playingChanged && update.playing && nissanCarPlayAudioMode && currentCallSnapshot() != null) {
                 debugLog("Call media: pause on playback restart queued=${sendMediaButton(com.shilapi.xcertplay.airplay.CarPlayMediaButton.PAUSE)}")
             }
+        }
+    }
+
+    private fun captureCallResumeIntent() {
+        val playback = synchronized(playbackStatus) {
+            playbackStatus.hasPlaybackStatus to playbackStatus.playing
+        }
+        val now = SystemClock.elapsedRealtime()
+        val hintAge = now - reconnectPlaybackHintAtMs
+        val hintValid = reconnectPlaybackWasPlayingHint != null && hintAge in 0L..RECONNECT_PLAYBACK_HINT_MAX_AGE_MS
+        val preReconnectWasPlaying = hintValid && reconnectPlaybackWasPlayingHint == true
+        // Prefer a positive pre-loss playing signal when this call spans a reconnect. A new
+        // session can report paused because its call setup already stopped media playback.
+        val resume = preReconnectWasPlaying || (playback.first && playback.second)
+        val source = when {
+            preReconnectWasPlaying -> "pre_reconnect_state"
+            playback.first && playback.second -> "iAP2_playback_status"
+            playback.first -> "iAP2_paused"
+            hintValid -> "recent_playback_hint"
+            else -> "unknown"
+        }
+        reconnectPlaybackWasPlayingHint = null
+        reconnectPlaybackHintAtMs = 0L
+        synchronized(callState) { resumeMediaAfterCall = resume }
+        debugLog("Call media: resume intent captured eligible=$resume source=$source " +
+            "statusKnown=${playback.first} statusPlaying=${playback.second}")
+    }
+
+    private fun resumeMediaAfterCallIfNeeded() {
+        if (closed) return
+        val generation = synchronized(callState) {
+            if (callState.current() != null || !resumeMediaAfterCall) {
+                null
+            } else {
+                val currentGeneration = mediaCommandGeneration
+                if (resumeMediaScheduledGeneration == currentGeneration) null
+                else {
+                    resumeMediaScheduledGeneration = currentGeneration
+                    currentGeneration
+                }
+            }
+        }
+        debugLog("Call media: ended resumeEligible=${generation != null}")
+        if (generation == null) return
+        if (activeSession == null) {
+            clearPostCallResumeSchedule(generation)
+            debugLog("Call media: post-call PLAY deferred reason=session_unavailable")
+            if (!closed && activeSession != null) resumeMediaAfterCallIfNeeded()
+            return
+        }
+        runCatching {
+            startupTimer.schedule({
+                val stillEligible = synchronized(callState) {
+                    callState.current() == null && resumeMediaAfterCall &&
+                        mediaCommandGeneration == generation && resumeMediaScheduledGeneration == generation
+                }
+                if (!stillEligible || closed) {
+                    clearPostCallResumeSchedule(generation)
+                    return@schedule
+                }
+                val targetSession = activeSession
+                if (targetSession == null) {
+                    clearPostCallResumeSchedule(generation)
+                    debugLog("Call media: post-call resume skipped reason=session_unavailable")
+                    if (!closed && activeSession != null) resumeMediaAfterCallIfNeeded()
+                    return@schedule
+                }
+                try {
+                    touchExecutor.execute {
+                        val canSend = synchronized(callState) {
+                            !closed && callState.current() == null && resumeMediaAfterCall &&
+                                mediaCommandGeneration == generation &&
+                                resumeMediaScheduledGeneration == generation && activeSession === targetSession
+                        }
+                        if (!canSend) {
+                            clearPostCallResumeSchedule(generation)
+                            if (!closed && activeSession != null && activeSession !== targetSession) {
+                                debugLog("Call media: session changed before post-call PLAY; retrying on active session")
+                                resumeMediaAfterCallIfNeeded()
+                            }
+                            return@execute
+                        }
+                        runCatching {
+                            // PLAY is idempotent. Send it even when retained status says "playing":
+                            // on this head unit that status can remain stale while media is silent.
+                            targetSession.sendMedia(com.shilapi.xcertplay.airplay.CarPlayMediaButton.PLAY)
+                        }.onSuccess {
+                            val consumed = synchronized(callState) {
+                                if (callState.current() == null && resumeMediaAfterCall &&
+                                    mediaCommandGeneration == generation && activeSession === targetSession) {
+                                    resumeMediaAfterCall = false
+                                    resumeMediaScheduledGeneration = null
+                                    true
+                                } else {
+                                    if (resumeMediaScheduledGeneration == generation) resumeMediaScheduledGeneration = null
+                                    false
+                                }
+                            }
+                            debugLog("Call media: post-call PLAY sent=true intentConsumed=$consumed")
+                            if (!consumed && !closed && activeSession != null && activeSession !== targetSession) {
+                                resumeMediaAfterCallIfNeeded()
+                            }
+                        }.onFailure { error ->
+                            clearPostCallResumeSchedule(generation)
+                            debugLog("Call media: post-call PLAY failed error=${error.javaClass.simpleName}")
+                        }
+                    }
+                } catch (error: Exception) {
+                    clearPostCallResumeSchedule(generation)
+                    debugLog("Call media: post-call PLAY enqueue failed error=${error.javaClass.simpleName}")
+                }
+            }, POST_CALL_MEDIA_RESUME_DELAY_MS, TimeUnit.MILLISECONDS)
+        }.onFailure {
+            clearPostCallResumeSchedule(generation)
+            debugLog("Call media: post-call resume schedule failed error=${it.javaClass.simpleName}")
+        }
+    }
+
+    private fun clearPostCallResumeSchedule(generation: Int) {
+        synchronized(callState) {
+            if (resumeMediaScheduledGeneration == generation) resumeMediaScheduledGeneration = null
         }
     }
 
@@ -2107,7 +2318,7 @@ class CarPlayController(
                 is IphoneUsbHost.Iap2SessionResult.Connected -> {
                     try {
                         val ncm = openNcm(device, result.session)
-                        runStack(result.session, ncm)
+                        runStack(device, result.session, ncm)
                     } catch (error: Throwable) {
                         result.session.close()
                         fail(error)
@@ -2146,7 +2357,7 @@ class CarPlayController(
         )
     }
 
-    private fun runStack(usbSession: Iap2UsbSession, ncm: NcmUsbBridge) {
+    private fun runStack(device: UsbDevice, usbSession: Iap2UsbSession, ncm: NcmUsbBridge) {
         phase = Phase.CONTROL
         wiredTcpArrived.set(false)
         var ncmOwnedLocally = true
@@ -2312,6 +2523,14 @@ class CarPlayController(
                 },
                 airPlayTcpArrived = { wiredTcpArrived.get() },
                 airPlayDataRecent = AirPlayMediaActivity::recent,
+                airPlayConnectionPending = if (nissanAndroid44Profile) {
+                    { vpnService?.hasAirPlaySessions() == true }
+                } else {
+                    { false }
+                },
+                reattachNcmVpn = if (nissanAndroid44Profile) {
+                    { currentEndpoint -> reattachWiredNcmVpn(device, usbSession, currentEndpoint) }
+                } else null,
             )
             debugLog("wired control ended terminal=${result.terminal} stage=${result.stage} " +
                 "forwarded=${result.forwardedFrames} starts=${result.carPlayStartSessionsSent} " +
@@ -2345,6 +2564,72 @@ class CarPlayController(
         }
     }
 
+    /**
+     * Rebuilds only the wired NCM/VPN path. USBMUX and its authenticated iAP2 session stay open;
+     * the caller sends a fresh 0x4301 using the endpoint returned here.
+     */
+    private fun reattachWiredNcmVpn(
+        device: UsbDevice,
+        usbSession: Iap2UsbSession,
+        previousEndpoint: Iap2WiredCarPlayEndpoint,
+    ): Iap2WiredCarPlayEndpoint? {
+        if (closed || phase != Phase.CONTROL || wiredTcpArrived.get()) {
+            connectionDiagnostic("wired recovery action=ncm-vpn-reattach skipped reason=control-not-idle")
+            return null
+        }
+        val service = vpnService ?: run {
+            connectionDiagnostic("wired recovery action=ncm-vpn-reattach failed reason=vpn-service-unavailable")
+            return null
+        }
+        val startedAt = System.nanoTime()
+        if (!service.detachIfNoAirPlaySessions()) {
+            connectionDiagnostic("wired recovery action=ncm-vpn-reattach deferred reason=airplay-session-pending")
+            return null
+        }
+        connectionDiagnostic("wired recovery action=ncm-vpn-reattach stage=detached-iap2-usb-retained")
+        return try {
+            val replacementNcm = openNcm(device, usbSession)
+            val hostMac = replacementNcm.hostMac ?: config.hostMac
+            val attachError = attachVpn(replacementNcm, hostMac, reportStatus = false)
+            if (attachError != null) {
+                connectionDiagnostic(
+                    "wired recovery action=ncm-vpn-reattach result=failed " +
+                        "stage=attach",
+                )
+                runCatching { service.detach() }
+                null
+            } else {
+                val port = service.boundPort()
+                if (port == null) {
+                    connectionDiagnostic("wired recovery action=ncm-vpn-reattach result=failed reason=listener-port-unavailable")
+                    runCatching { service.detach() }
+                    null
+                } else {
+                    connectionDiagnostic(
+                        "wired recovery action=ncm-vpn-reattach result=attached elapsedMs=${elapsedMillis(startedAt)} " +
+                            "port=$port",
+                    )
+                    Iap2WiredCarPlayEndpoint(
+                        ipv6Addresses = previousEndpoint.ipv6Addresses,
+                        airPlayPort = port,
+                        publicKey = previousEndpoint.publicKey,
+                        sourceVersion = previousEndpoint.sourceVersion,
+                        deviceIdentifier = hostMac.macString(),
+                    )
+                }
+            }
+        } catch (error: Throwable) {
+            runCatching { service.detach() }
+            connectionDiagnostic(
+                "wired recovery action=ncm-vpn-reattach result=failed " +
+                    "elapsedMs=${elapsedMillis(startedAt)} failureClass=${diagnosticFailureClass(error)}",
+            )
+            debugLog("wired NCM/VPN in-place recovery failed", error)
+            if (error is VpnAuthorizationRequiredException) throw error
+            null
+        }
+    }
+
     private fun pairNewRecord(client: LockdownPairingClient): LockdownPairRecord =
         client.pair(
             label = config.label,
@@ -2375,7 +2660,8 @@ class CarPlayController(
         }
         val readyDeadline = System.nanoTime() + WirelessStartupPolicy.HOTSPOT_READY_MILLIS * 1_000_000
         val hotspotMode = config.wirelessHotspotMode
-        if (Build.VERSION.SDK_INT > 28 && hotspotMode == WirelessHotspotMode.MANUAL &&
+        if (Build.VERSION.SDK_INT > 28 && !nissanAndroid44Profile &&
+            hotspotMode == WirelessHotspotMode.MANUAL &&
             com.shilapi.xcertplay.network.CarHotspotStatus.isEnabled(appContext) == false
         ) {
             throw WirelessStartupException(WirelessStartupFailure.HOTSPOT_CONFIGURATION,
@@ -2390,17 +2676,25 @@ class CarPlayController(
                 appContext, config.existingWifiSsid, config.existingWifiPassphrase, ::debugLog,
                 onNetworkChanged = { if (!isStaleWirelessRun(generation)) restartWireless() },
             )
-            WirelessHotspotMode.MANUAL -> ManualHotspotManager(
-                context = appContext,
-                ssid = config.manualHotspotSsid
-                    ?: throw WirelessStartupException(WirelessStartupFailure.HOTSPOT_CONFIGURATION, "Manual hotspot SSID is not configured"),
-                passphrase = config.manualHotspotPassphrase.orEmpty(),
-                band = config.manualHotspotBand,
-                channel = config.manualHotspotChannel,
-                security = config.manualHotspotSecurity,
-                onDiagnostic = { debugLog("generation=$generation $it") },
-                isCancelled = { isStaleWirelessRun(generation) },
-            )
+            WirelessHotspotMode.MANUAL -> {
+                val manual = ManualHotspotManager(
+                    context = appContext,
+                    ssid = config.manualHotspotSsid
+                        ?: throw WirelessStartupException(WirelessStartupFailure.HOTSPOT_CONFIGURATION, "Manual hotspot SSID is not configured"),
+                    passphrase = config.manualHotspotPassphrase.orEmpty(),
+                    band = config.manualHotspotBand,
+                    channel = config.manualHotspotChannel,
+                    security = config.manualHotspotSecurity,
+                    onDiagnostic = { debugLog("generation=$generation $it") },
+                    isCancelled = { isStaleWirelessRun(generation) },
+                )
+                if (nissanAndroid44Profile) NissanFirmwareHotspotManager(
+                    context = appContext,
+                    delegate = manual,
+                    onDiagnostic = { debugLog("generation=$generation $it") },
+                    isCancelled = { isStaleWirelessRun(generation) },
+                ) else manual
+            }
         }
         synchronized(wirelessResourceLock) {
             if (isStaleWirelessRun(generation)) {
@@ -2746,8 +3040,12 @@ class CarPlayController(
         else -> CONTROL_LOOP_TIMEOUT_MILLIS
     }
 
-    private fun attachVpn(ncm: NcmUsbBridge, hostMac: ByteArray): String? {
-        onStatus(CarPlayStatus.AttachingNetwork)
+    private fun attachVpn(
+        ncm: NcmUsbBridge,
+        hostMac: ByteArray,
+        reportStatus: Boolean = true,
+    ): String? {
+        if (reportStatus) onStatus(CarPlayStatus.AttachingNetwork)
         val service = awaitVpnService() ?: run {
             debugLog("wired VPN service bind failed")
             ncm.close()
@@ -2768,7 +3066,7 @@ class CarPlayController(
             )
         } catch (error: Throwable) {
             ncm.close()
-            onStatus(CarPlayStatus.Failed(error.message ?: error.javaClass.simpleName))
+            if (reportStatus) onStatus(CarPlayStatus.Failed(error.message ?: error.javaClass.simpleName))
             return "VPN service attach raised ${error.javaClass.simpleName}: ${error.message ?: "unknown"}"
         }
         return when (result) {
@@ -2785,7 +3083,8 @@ class CarPlayController(
                 debugLog("wired VPN/NCM transport attach result=failed ${result.message}")
                 service.lastAttachFailure?.let { debugLog("wired VPN/NCM root failure $it") }
                 ncm.close()
-                onStatus(CarPlayStatus.Failed(result.message))
+                if (result.vpnPreparationRequired) throw VpnAuthorizationRequiredException()
+                if (reportStatus) onStatus(CarPlayStatus.Failed(result.message))
                 result.message
             }
         }
@@ -2874,6 +3173,7 @@ class CarPlayController(
     private fun fail(error: Throwable, generation: Int? = null) {
         synchronized(wirelessResourceLock) {
             if (closed || generation != null && generation != wirelessGeneration.get()) return
+            connectionDiagnostic("memory snapshot point=connection-failure ${MemoryPressureSnapshot.describe(appContext)}")
             val wireless = config.transport == CarPlayTransport.WIRELESS
             if (wireless) {
                 if (!wirelessFailureReported.compareAndSet(false, true)) return
@@ -2882,7 +3182,9 @@ class CarPlayController(
             val causes = generateSequence(error) { it.cause }.toList()
             onStatus(CarPlayStatus.Failed(error.message ?: error.javaClass.simpleName,
                 causes.any { it is com.shilapi.xcertplay.network.P2pResetRequiredException },
-                causes.filterIsInstance<WirelessStartupException>().firstOrNull()?.reason),
+                causes.filterIsInstance<WirelessStartupException>().firstOrNull()?.reason,
+                recoveryAction = if (!wireless && causes.any { it is VpnAuthorizationRequiredException })
+                    CarPlayRecoveryAction.RECHECK_WIRED_VPN_PREPARATION else null),
                 if (wireless) wirelessGeneration.get() else null)
         }
     }
@@ -3049,6 +3351,8 @@ class CarPlayController(
         private const val RFCOMM_CONNECT_TIMEOUT_MILLIS = 15_000L
         private const val MAXIMUM_REENUMERATION_ATTEMPTS = 2
         private const val EXECUTOR_CLOSE_TIMEOUT_MILLIS = 2_000L
+        private const val RECONNECT_PLAYBACK_HINT_MAX_AGE_MS = 90_000L
+        private const val POST_CALL_MEDIA_RESUME_DELAY_MS = 1_200L
         private const val ADAPTER_ADDRESS_PLACEHOLDER = "02:00:00:00:00:00"
         private val BLUETOOTH_ADDRESS = Regex("^[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}$")
     }
