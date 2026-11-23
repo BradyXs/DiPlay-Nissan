@@ -12,20 +12,20 @@ class NissanVideoFrameRateTest {
     @Test fun raisesAndLowersTheNextSessionWithHysteresis() {
         val policy = NissanVideoFrameRate()
         val low = policy.begin(wireless)
-        assertEquals(30, low.fps)
+        assertEquals(15, low.fps)
         repeat(2) { assertNull(low.observe(healthy)) }
-        assertEquals(60, low.observe(healthy))
-        assertEquals(30, low.fps)
-        assertEquals(30, policy.begin(wireless.copy(wireless = false)).fps)
+        assertEquals(30, low.observe(healthy))
+        assertEquals(15, low.fps)
+        assertEquals(15, policy.begin(wireless.copy(wireless = false)).fps)
 
         val high = policy.begin(wireless)
-        assertEquals(60, high.fps)
+        assertEquals(30, high.fps)
         assertNull(high.observe(overloaded))
-        assertEquals(30, high.observe(overloaded))
+        assertEquals(15, high.observe(overloaded))
         val lowAgain = policy.begin(wireless)
-        assertEquals(30, lowAgain.fps)
+        assertEquals(15, lowAgain.fps)
         repeat(5) { assertNull(lowAgain.observe(healthy)) }
-        assertEquals(60, lowAgain.observe(healthy))
+        assertEquals(30, lowAgain.observe(healthy))
     }
 
     @Test fun ignoresIdleInputGapsAndAnOldDecoder() {
@@ -39,6 +39,6 @@ class NissanVideoFrameRateTest {
         assertNull(current.observe(healthy.copy(inputFps = 1.0)))
         repeat(2) { assertNull(current.observe(healthy)) }
         assertNull(current.observe(healthy.copy(maxArrivalGapMillis = 2_000)))
-        assertEquals(30, policy.begin(wireless).fps)
+        assertEquals(15, policy.begin(wireless).fps)
     }
 }

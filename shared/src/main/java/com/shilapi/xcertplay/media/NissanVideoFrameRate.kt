@@ -1,6 +1,8 @@
 package com.shilapi.xcertplay.media
 
-/** Learns a main-screen FPS ceiling for the next session. AirPlay negotiates it once per session. */
+import com.shilapi.xcertplay.airplay.AirPlayDisplaySettings
+
+/** Learns a 15–30 fps main-screen ceiling for the next session. AirPlay negotiates it per session. */
 class NissanVideoFrameRate {
     data class Profile(
         val wireless: Boolean,
@@ -21,9 +23,9 @@ class NissanVideoFrameRate {
     )
 
     private class ProfileState {
-        var nextFps = 30
+        var nextFps = AirPlayDisplaySettings.MIN_ADAPTIVE_FPS
         var generation = 0L
-        var cooldownAfter60 = false
+        var cooldownAfter30 = false
     }
 
     private val profiles = LinkedHashMap<Profile, ProfileState>(16, 0.75f, true)
@@ -40,9 +42,9 @@ class NissanVideoFrameRate {
             if (state.generation != generation || state.nextFps != fps) return@synchronized null
 
             // Static screens, missing surfaces and irregular input do not demonstrate decoder load.
-            val continuous = window.visibleThroughout && window.inputFps >= 24 &&
+            val continuous = window.visibleThroughout && window.inputFps >= fps * 0.8 &&
                 window.maxArrivalGapMillis in 1..250
-            val qualifies = continuous && if (fps == 30) {
+            val qualifies = continuous && if (fps == MIN_ADAPTIVE_FPS) {
                 window.decodedFraction >= 0.92 && window.shownFraction >= 0.90 &&
                     window.queueP90Millis in 0..12 && window.recoveries == 0
             } else {
@@ -50,10 +52,10 @@ class NissanVideoFrameRate {
                     (window.decodedFraction < 0.85 || window.shownFraction < 0.85 || window.recoveries > 0))
             }
             consecutive = if (qualifies) consecutive + 1 else 0
-            val required = if (fps == 60) 2 else if (state.cooldownAfter60) 6 else 3
+            val required = if (fps == MAX_ADAPTIVE_FPS) 2 else if (state.cooldownAfter30) 6 else 3
             if (consecutive < required) return@synchronized null
-            if (fps == 60) state.cooldownAfter60 = true
-            state.nextFps = if (fps == 30) 60 else 30
+            if (fps == MAX_ADAPTIVE_FPS) state.cooldownAfter30 = true
+            state.nextFps = if (fps == MIN_ADAPTIVE_FPS) MAX_ADAPTIVE_FPS else MIN_ADAPTIVE_FPS
             state.nextFps
         }
     }
@@ -67,4 +69,9 @@ class NissanVideoFrameRate {
     }
 
     private var generation = 0L
+
+    private companion object {
+        const val MIN_ADAPTIVE_FPS = AirPlayDisplaySettings.MIN_ADAPTIVE_FPS
+        const val MAX_ADAPTIVE_FPS = AirPlayDisplaySettings.MIN_FPS
+    }
 }

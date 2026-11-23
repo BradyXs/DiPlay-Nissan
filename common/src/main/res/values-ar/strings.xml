@@ -485,7 +485,7 @@
     <string name="settings_car_bluetooth_mac_invalid">يرجى إدخال عنوان MAC سداسي عشري صالح من 12 خانة.</string>
     <string name="settings_detailed_diagnostics_title">سجلات تشخيص مفصلة</string>
     <string name="settings_detailed_diagnostics_description">يسجّل تفاصيل الفيديو والاتصال اللاسلكي ونصوص الملاحة في إصدار نيسان. اتركه مغلقًا عند الاستخدام العادي؛ يستمر تسجيل الأعطال والتوقفات.</string>
-    <string name="settings_adaptive_frame_rate">تلقائي 30–60 إطارًا/ث · عند الاتصال التالي</string>
+    <string name="settings_adaptive_frame_rate">تلقائي 15–30 إطارًا/ث · عند الاتصال التالي</string>
 
 
 
