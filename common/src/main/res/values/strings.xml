@@ -95,6 +95,11 @@
     <string name="a_previous_wi_fi_direct_connection_is_still_running_reset">A previous Wi-Fi Direct connection is still running. Reset it to connect.</string>
     <string name="about">About</string>
     <string name="about_diplay">About DiPlay</string>
+    <string name="headunit_manager_title">Headunit Manager</string>
+    <string name="headunit_manager_description">Open Headunit Manager if installed, or download the platform-signed build. It works only on firmware with a matching platform signature.</string>
+    <string name="headunit_manager_open">Open Headunit Manager</string>
+    <string name="headunit_manager_download">Download platform-signed APK</string>
+    <string name="headunit_manager_open_failed">Could not open the manager or release page. Check whether a browser is available.</string>
     <string name="active">Active</string>
     <string name="airplay_icon">AirPlay icon</string>
     <string name="allow_carplay_ui_outside_the_safe_area">Allow CarPlay UI outside the safe area</string>

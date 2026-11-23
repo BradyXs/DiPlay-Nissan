@@ -20,6 +20,7 @@ DiPlay-Nissan 基于 [DiPlay](https://github.com/shihabal3amri/DiPlay) 和 [DiPl
 
 - [GitHub Releases](https://github.com/BradyXs/DiPlay-Nissan/releases) 提供日产车机 APK、校验值、版本说明和源码归档。
 - [项目页面](https://bradyxs.github.io/DiPlay-Nissan/) 介绍适配范围、安装和构建方式。
+- 配套工具：[车机管家源码](https://github.com/BradyXs/headunit-manager) · [平台签名版下载页](https://github.com/BradyXs/headunit-manager/releases/latest) · [v0.5.57 直接下载](https://github.com/BradyXs/headunit-manager/releases/download/v0.5.57/HeadunitManager-0.5.57-platform.apk)。
 
 公开源码不包含 MFi 认证材料或 Android 签名私钥。Release 中的 APK 内含运行所需认证文件；公开下载意味着这些文件可从 APK 中提取。已有安装的覆盖升级要求包名与签名证书一致。请只安装适用于日产 Android 4.4.3 / ARMv7 的版本。
 
@@ -37,6 +38,12 @@ DiPlay-Nissan 基于 [DiPlay](https://github.com/shihabal3amri/DiPlay) 和 [DiPl
 
 1. 使用支持数据传输的 USB 线，将 iPhone 接入车机 USB 数据口。
 2. 在 DiPlay 首页点“有线连接”；如车机或 iPhone 出现 USB、信任或 CarPlay 提示，请允许连接。
+
+### 与车机管家配合使用
+
+在 DiPlay“设置 → 关于 DiPlay”中，可以打开已安装的车机管家；也可以跳转到车机管家 Release 页面下载平台签名版。该版本仅适用于平台签名匹配的目标固件。
+
+如果 DiPlay 提示 iPhone USB 被占用或 USB 权限未授予，先退出车机原厂 iPod 播放器并重新插拔数据线。若原厂 iPod 应用或服务持续占用 USB，且确认它是冲突来源，可在“车机管家 → 应用管理”中找到对应的 iPod 应用或服务并停用；恢复原厂 iPod 功能时，在同一处重新启用。停用可能影响原车 USB/iPod 媒体播放，请只处理已确认的 iPod 项。此操作需要手动执行，不会随 DiPlay 有线连接状态自动切换。
 
 ### 设置与日常操作
 

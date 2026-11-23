@@ -87,6 +87,11 @@
     <string name="a_previous_wi_fi_direct_connection_is_still_running_reset">之前的 Wi-Fi Direct 连接仍在运行。请重置后再连接。</string>
     <string name="about">关于</string>
     <string name="about_diplay">关于 DiPlay</string>
+    <string name="headunit_manager_title">车机管家</string>
+    <string name="headunit_manager_description">可打开已安装的车机管家，或下载平台签名版。仅适用于固件签名匹配的设备。</string>
+    <string name="headunit_manager_open">打开车机管家</string>
+    <string name="headunit_manager_download">下载平台签名版</string>
+    <string name="headunit_manager_open_failed">无法打开管家或下载页面，请检查浏览器是否可用。</string>
     <string name="active">已启用</string>
     <string name="airplay_icon">AirPlay 图标</string>
     <string name="allow_carplay_ui_outside_the_safe_area">允许 CarPlay 界面超出安全区域</string>

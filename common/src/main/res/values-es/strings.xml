@@ -93,6 +93,11 @@
     <string name="a_previous_wi_fi_direct_connection_is_still_running_reset">Hay una conexión Wi-Fi Direct anterior todavía en ejecución. Restablécela para conectarte.</string>
     <string name="about">Acerca de</string>
     <string name="about_diplay">Acerca de DiPlay</string>
+    <string name="headunit_manager_title">Gestor de la unidad del coche</string>
+    <string name="headunit_manager_description">Abre el gestor instalado o descarga la versión firmada de plataforma. Solo funciona con firmware cuya firma coincida.</string>
+    <string name="headunit_manager_open">Abrir gestor de la unidad</string>
+    <string name="headunit_manager_download">Descargar APK firmado para la plataforma</string>
+    <string name="headunit_manager_open_failed">No se pudo abrir el gestor ni la página de descarga. Comprueba si hay un navegador disponible.</string>
     <string name="active">Activo</string>
     <string name="airplay_icon">Icono de AirPlay</string>
     <string name="allow_carplay_ui_outside_the_safe_area">Permitir la interfaz de CarPlay fuera de la zona segura</string>

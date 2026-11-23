@@ -96,6 +96,11 @@
     <string name="a_previous_wi_fi_direct_connection_is_still_running_reset">Попереднє з’єднання Wi-Fi Direct ще активне. Скиньте його, щоб підключитися.</string>
     <string name="about">Про застосунок</string>
     <string name="about_diplay">Про DiPlay</string>
+    <string name="headunit_manager_title">Менеджер головного пристрою</string>
+    <string name="headunit_manager_description">Відкрийте встановлений менеджер або завантажте версію із системним підписом. Вона працює лише з прошивкою з відповідним підписом.</string>
+    <string name="headunit_manager_open">Відкрити менеджер</string>
+    <string name="headunit_manager_download">Завантажити APK із системним підписом</string>
+    <string name="headunit_manager_open_failed">Не вдалося відкрити менеджер або сторінку завантаження. Перевірте наявність браузера.</string>
     <string name="active">Активно</string>
     <string name="airplay_icon">Значок AirPlay</string>
     <string name="allow_carplay_ui_outside_the_safe_area">Дозволити інтерфейс CarPlay поза безпечною областю</string>
