@@ -7,14 +7,32 @@ import com.shilapi.xcertplay.mfi.LocalMfiAuthenticationClient
 import com.shilapi.xcertplay.orchestration.MfiTarget
 import java.io.File
 import java.security.MessageDigest
+import java.util.concurrent.atomic.AtomicBoolean
 
 /** Installs the private beta's experimental identity. It has no remote fallback. */
 internal object DiPlayBootstrap {
-    @Volatile private var ready = false
+    @Volatile private var validatedIdentity: LocalMfiAuthenticationClient? = null
+
+    private val prewarmInProgress = AtomicBoolean(false)
+
+    fun localIdentity(): LocalMfiAuthenticationClient? = validatedIdentity
+
+    fun prewarmLocalIdentity(context: Context, target: MfiTarget) {
+        if (target != MfiTarget.LOCAL || validatedIdentity != null || !prewarmInProgress.compareAndSet(false, true)) return
+        val appContext = context.applicationContext
+        Thread({
+            try {
+                // The host also calls ensure() so it receives the actual error if preparation fails.
+                runCatching { ensure(appContext, target) }
+            } finally {
+                prewarmInProgress.set(false)
+            }
+        }, "diplay-mfi-prewarm").apply { isDaemon = true; start() }
+    }
 
     @Synchronized fun ensure(context: Context, mfiTarget: MfiTarget) {
         if (mfiTarget != MfiTarget.LOCAL) return
-        if (ready) return
+        if (validatedIdentity != null) return
         val privateRoot = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) context.noBackupFilesDir else context.filesDir
         val target = File(privateRoot, LocalMfiAuthenticationClient.DIRECTORY)
         val staging = File(privateRoot, "offline-mfi-staging")
@@ -22,7 +40,7 @@ internal object DiPlayBootstrap {
         check(staging.mkdirs()) { "Could not prepare local authentication" }
         staging.setReadable(false, false); staging.setReadable(true, true)
         staging.setExecutable(false, false); staging.setExecutable(true, true)
-        try {
+        val prepared = try {
             for (name in AUTH_FILES) {
                 val file = File(staging, name)
                 context.assets.open("offline-mfi/$name").use { input ->
@@ -33,7 +51,7 @@ internal object DiPlayBootstrap {
             }
 
             // Validate the APK-bundled identity before it can replace a previous installation.
-            LocalMfiAuthenticationClient.load(staging)
+            val identity = LocalMfiAuthenticationClient.load(staging)
             // Identical files have just passed validation in staging. A different or incomplete
             // installed identity is replaced by that validated copy.
             if (!sameAuthenticationFiles(target, staging)) {
@@ -50,10 +68,13 @@ internal object DiPlayBootstrap {
                     throw error
                 }
             }
+            identity
         } finally {
             staging.deleteRecursively()
         }
-        ready = true
+        // Reuse the validated material for the life of this process. Each session still
+        // signs the phone's challenge and keeps independent diagnostic counters.
+        validatedIdentity = prepared
     }
 
     private fun sameAuthenticationFiles(first: File, second: File): Boolean =

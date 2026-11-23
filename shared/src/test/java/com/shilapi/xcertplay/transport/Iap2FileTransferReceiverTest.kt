@@ -21,6 +21,18 @@ class Iap2FileTransferReceiverTest {
     }
 
     @Test
+    fun declinesArtworkBeforeBufferingWhenNoDisplayUsesIt() {
+        val receiver = Iap2FileTransferReceiver(acceptArtwork = false)
+
+        val rejected = receiver.accept(setup(0x81, 83_177))
+        assertArrayEquals(byteArrayOf(0x81.toByte(), 2), rejected.replies.single())
+        assertNull(rejected.completed)
+        val ignored = receiver.accept(data(0x81, 0x40, byteArrayOf(1, 2, 3)))
+        assertTrue(ignored.replies.isEmpty())
+        assertNull(ignored.completed)
+    }
+
+    @Test
     fun rejectsOversizedUnsupportedAndTruncatedTransfers() {
         val receiver = Iap2FileTransferReceiver(maximumArtworkBytes = 4)
 

@@ -442,11 +442,11 @@ class TlsDuplexChannel private constructor(
                 return TlsDuplexChannel(underlying, engine).also {
                     it.performHandshake(handshakeTimeoutMillis)
                 }
-            } catch (error: Exception) {
+            } catch (error: Throwable) {
                 try {
                     underlying.close()
-                } catch (_: Exception) {
-                    // Preserve the handshake failure.
+                } catch (closeFailure: Throwable) {
+                    if (error !== closeFailure) error.addSuppressed(closeFailure)
                 }
                 throw error
             }

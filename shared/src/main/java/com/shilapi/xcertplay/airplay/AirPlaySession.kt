@@ -72,9 +72,11 @@ class AirPlaySession(
     private val mfi: MfiAuthenticator?,
     private val listener: AirPlaySessionListener,
     private val media: AirPlayMediaHandler,
+    private val tcpAcceptedAtNanos: Long? = System.nanoTime(),
+    takePreparedPairVerifyKey: (() -> AirPlayCrypto.X25519KeyPair?)? = null,
 ) : Closeable {
     internal val pairSetup = PairSetup(identity, pairings)
-    internal val pairVerify = PairVerify(identity, pairings)
+    internal val pairVerify = PairVerify(identity, pairings, takePreparedPairVerifyKey)
     internal var cipher: ControlCipher? = null
     internal var encBuf = ByteArray(0)
     @Volatile internal var deviceBtMac = ""
@@ -287,7 +289,6 @@ class AirPlaySession(
             "Content-Type: $PLIST_CONTENT_TYPE\r\n" +
             "Content-Length: ${body.size}\r\n" +
             "CSeq: $eventCseq\r\n\r\n"
-        trace("airplay event tx headers=$head bodyHex=${body.toHex()}")
         return try {
             val bytes = cipher.encrypt(head.toByteArray(Charsets.US_ASCII) + body)
             val output = socket.getOutputStream()
@@ -405,6 +406,16 @@ class AirPlaySession(
             ),
         )
 
+    private data class StartupReplyTiming(
+        val index: Int,
+        val label: String,
+        val receivedAt: Long,
+        val dispatchNanos: Long,
+        val handlerNanos: Long,
+        val writeNanos: Long,
+        val status: Int,
+    )
+
     private fun runControl() {
         com.shilapi.xcertplay.network.TcpLiveness.configure(socket) { debugLog(it) }
         val input = BufferedInputStream(socket.getInputStream())
@@ -412,9 +423,16 @@ class AirPlaySession(
         var accumulated = ByteArray(0)
         val buffer = ByteArray(READ_CHUNK_BYTES)
         var closeReason = "session closed"
+        var lastStartupReplyAt = 0L
+        var startupRequests = 0
+        val acceptedAt = tcpAcceptedAtNanos ?: 0L
+        var startupFinished = tcpAcceptedAtNanos == null
+        val startupReplies = ArrayList<StartupReplyTiming>(2)
         try {
             while (!closed.get()) {
                 val count = input.read(buffer)
+                val receivedAt = if (!startupFinished && startupRequests < MAX_STARTUP_CONTROL_REQUESTS)
+                    System.nanoTime() else 0L
                 if (count < 0) {
                     closeReason = "peer EOF"
                     break
@@ -437,6 +455,7 @@ class AirPlaySession(
                 val parsed = RtspMessage.parseMessages(accumulated)
                 accumulated = parsed.rest
                 for (request in parsed.messages) {
+                    val measureStartup = !startupFinished && startupRequests < MAX_STARTUP_CONTROL_REQUESTS
                     val cseq = request.headers["cseq"] ?: "-"
                     val path = request.path.lowercase()
                     val showInDebugOverlay =
@@ -450,10 +469,7 @@ class AirPlaySession(
                         AirPlayControlDiagnostics.request(request.method, request.path, request.body.size),
                         false,
                     )
-                    trace(
-                        "airplay control rx headers=${request.headers} " +
-                            "bodyHex=${request.body.toHex()}",
-                    )
+                    val handleStarted = if (measureStartup) System.nanoTime() else 0L
                     val response = try {
                         handle(request)
                     } catch (error: Exception) {
@@ -464,6 +480,7 @@ class AirPlaySession(
                         )
                         RtspMessage.Response(status = 500)
                     }
+                    val handledAt = if (measureStartup) System.nanoTime() else 0L
                     debugLog(
                         "airplay tx status=${response.status ?: 200} cseq=$cseq body=${response.body.size}",
                         showInDebugOverlay,
@@ -473,16 +490,43 @@ class AirPlaySession(
                         false,
                     )
                     val wire = RtspMessage.buildResponse(request, response)
-                    trace("airplay control tx wireHex=${wire.toHex()}")
                     output.write(cipher?.encrypt(wire) ?: wire)
+                    if (measureStartup) {
+                        startupReplies += StartupReplyTiming(
+                            ++startupRequests,
+                            AirPlayControlDiagnostics.requestLabel(request.method, request.path),
+                            receivedAt,
+                            handleStarted - receivedAt,
+                            handledAt - handleStarted,
+                            System.nanoTime() - handledAt,
+                            response.status ?: 200,
+                        )
+                    }
                     if (cipher == null && pairVerify.controlKeys != null) {
                         val keys = pairVerify.controlKeys!!
                         cipher = ControlCipher(keys.readKey, keys.writeKey)
                         debugLog("airplay control encryption enabled")
                     }
                 }
+                val flushStarted = if (startupReplies.isNotEmpty()) System.nanoTime() else 0L
                 output.flush()
+                val flushedAt = if (startupReplies.isNotEmpty()) System.nanoTime() else 0L
                 notifySetupResponseSent()
+                if (mainScreenToken != null) startupFinished = true
+                if (startupReplies.isNotEmpty()) {
+                    val flushMs = elapsedMillis(flushedAt - flushStarted)
+                    for (reply in startupReplies) {
+                        val gapMs = if (lastStartupReplyAt == 0L) -1 else elapsedMillis(reply.receivedAt - lastStartupReplyAt)
+                        debugLog("AIRPLAY_STARTUP request=${reply.index} ${reply.label} status=${reply.status} " +
+                            "receivedMs=${elapsedMillis(reply.receivedAt - acceptedAt)} " +
+                            "gapAfterPreviousFlushMs=$gapMs dispatchMs=${elapsedMillis(reply.dispatchNanos)} " +
+                            "handlerMs=${elapsedMillis(reply.handlerNanos)} " +
+                            "prepareAndWriteMs=${elapsedMillis(reply.writeNanos)} flushMs=$flushMs " +
+                            "flushCompletedMs=${elapsedMillis(flushedAt - acceptedAt)} batchSize=${startupReplies.size}")
+                    }
+                    lastStartupReplyAt = flushedAt
+                    startupReplies.clear()
+                }
             }
         } catch (error: Exception) {
             closeReason = "control I/O failed: ${error.message ?: error.javaClass.simpleName}"
@@ -492,6 +536,8 @@ class AirPlaySession(
             close()
         }
     }
+
+    private fun elapsedMillis(nanos: Long): Long = nanos.coerceAtLeast(0L) / 1_000_000L
 
     private fun handle(request: RtspMessage.Request): RtspMessage.Response {
         when (request.method) {
@@ -533,14 +579,6 @@ class AirPlaySession(
             }
             path.endsWith("/info") -> {
                 val info = AirPlayInfoPlist.build(config)
-                if (request.body.isNotEmpty()) {
-                    val requestInfo = try {
-                        BplistCodec.decode(request.body).toString()
-                    } catch (_: Exception) {
-                        "<unparseable ${request.body.size} bytes>"
-                    }
-                    debugLog("airplay /info request=$requestInfo")
-                }
                 Log.i(
                     TAG,
                     "airplay /info features=${info["features"]} " +
@@ -635,7 +673,6 @@ class AirPlaySession(
                 debugLog("airplay video-only SETUP requested=$requestedTypes; iPhone has not requested an audio stream")
             }
             val body = BplistCodec.encode(linkedMapOf("streams" to responseStreams))
-            trace("airplay SETUP response bplistHex=${body.toHex()}")
             return RtspMessage.Response(headers = mapOf("Content-Type" to PLIST_CONTENT_TYPE), body = body)
         }
 
@@ -674,7 +711,6 @@ class AirPlaySession(
         for (entry in streams) {
             val stream = asMap(entry) ?: continue
             val type = long(stream["type"])?.toInt() ?: continue
-            debugLog("airplay SETUP stream type=$type payload=$stream")
             when (type) {
                 STREAM_TYPE_MAIN_SCREEN, STREAM_TYPE_ALT_SCREEN -> {
                     val port = media.onScreen(this, type, stream)
@@ -763,7 +799,6 @@ class AirPlaySession(
             "airplay TEARDOWN types=${types ?: "all"} activeBefore=$activeStreams " +
                 "body=${request.body.size} bytes payload=$decodedBody",
         )
-        trace("airplay TEARDOWN raw${request.body.size}Hex=${request.body.toHex()}")
 
         // Restore wheel input before releasing media resources, which may take time to close.
         if (types == null || STREAM_TYPE_MAIN_SCREEN in types) mainScreenToken = null
@@ -897,11 +932,6 @@ class AirPlaySession(
                         "airplay event rx ${message.method} ${message.path} cseq=${message.headers["cseq"] ?: "-"} body=${message.body.size}",
                     )
                     val response = RtspMessage.buildResponse(message, RtspMessage.Response(status = 200))
-                    trace(
-                        "airplay event rx headers=${message.headers} " +
-                            "bodyHex=${message.body.toHex()}",
-                    )
-                    trace("airplay event tx wireHex=${response.toHex()}")
                     synchronized(eventWriteLock) {
                         output.write(cipher.encrypt(response))
                         output.flush()
@@ -926,6 +956,7 @@ class AirPlaySession(
     }
 
     private companion object {
+        const val MAX_STARTUP_CONTROL_REQUESTS = 24
         const val TAG = "xcertplay-usb"
         const val PLIST_CONTENT_TYPE = "application/x-apple-binary-plist"
         const val PAIRING_CONTENT_TYPE = "application/pairing+tlv8"
@@ -984,9 +1015,6 @@ internal fun safeClose(closeable: Closeable?) {
         // Best-effort close.
     }
 }
-
-private fun ByteArray.toHex(): String =
-    joinToString(separator = "") { byte -> "%02x".format(byte.toInt() and 0xff) }
 
 private fun asMap(value: Any?): Map<String, Any?>? {
     val map = value as? Map<*, *> ?: return null

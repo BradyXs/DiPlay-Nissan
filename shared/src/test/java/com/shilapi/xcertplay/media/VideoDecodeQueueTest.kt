@@ -5,6 +5,28 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class VideoDecodeQueueTest {
+    @Test fun firstCodecStartupTemporarilyAllowsFramesThatAgedWhileItConfigured() {
+        val startup = VideoFirstFrameGrace(enabled = true)
+        assertEquals(250_000_000L, startup.frameAgeLimitNanos(100_000_000L))
+        startup.onCodecConfigured(100_000_000L)
+        assertEquals(500_000_000L, startup.frameAgeLimitNanos(413_000_000L))
+        startup.onFirstFrameReleased()
+        assertEquals(250_000_000L, startup.frameAgeLimitNanos(414_000_000L))
+        startup.onCodecConfigured(415_000_000L)
+        assertEquals(250_000_000L, startup.frameAgeLimitNanos(416_000_000L))
+    }
+
+    @Test fun missingOutputAndCodecReconfigurationDoNotExtendTheStartupWindow() {
+        val startup = VideoFirstFrameGrace(enabled = true)
+        startup.onCodecConfigured(100_000_000L)
+        startup.onCodecConfigured(800_000_000L)
+        assertEquals(500_000_000L, startup.frameAgeLimitNanos(1_599_999_999L))
+        assertEquals(250_000_000L, startup.frameAgeLimitNanos(1_600_000_000L))
+        val normal = VideoFirstFrameGrace(enabled = false)
+        normal.onCodecConfigured(100_000_000L)
+        assertEquals(250_000_000L, normal.frameAgeLimitNanos(413_000_000L))
+    }
+
     @Test fun lostReferenceChainWaitsForSuccessfullyQueuedKeyframe() {
         val chain = VideoReferenceChain()
         val predicted = byteArrayOf(0, 0, 0, 1, 0x41, 1)

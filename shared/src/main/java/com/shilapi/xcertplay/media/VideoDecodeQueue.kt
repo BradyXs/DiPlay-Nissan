@@ -35,6 +35,33 @@ internal class VideoReferenceChain {
     fun onQueued() { needsKeyFrame = false }
 }
 
+/** Allows the first decodable GOP to survive a slow hardware codec start. */
+internal class VideoFirstFrameGrace(private val enabled: Boolean) {
+    private var startedAtNanos: Long? = null
+    private var firstFrameReleased = false
+
+    fun onCodecConfigured(configureStartedAtNanos: Long) {
+        if (enabled && startedAtNanos == null) startedAtNanos = configureStartedAtNanos
+    }
+
+    fun onFirstFrameReleased() {
+        firstFrameReleased = true
+    }
+
+    fun frameAgeLimitNanos(nowNanos: Long): Long {
+        val startedAt = startedAtNanos ?: return NORMAL_FRAME_AGE_NS
+        return if (!firstFrameReleased && nowNanos - startedAt in 0 until GRACE_WINDOW_NS) {
+            STARTUP_FRAME_AGE_NS
+        } else NORMAL_FRAME_AGE_NS
+    }
+
+    companion object {
+        const val NORMAL_FRAME_AGE_NS = 250_000_000L
+        private const val STARTUP_FRAME_AGE_NS = 500_000_000L
+        private const val GRACE_WINDOW_NS = 1_500_000_000L
+    }
+}
+
 /** Limit latency and memory without ever dropping a reference frame silently. */
 internal class VideoDecodeQueue(
     // Wi-Fi delivers frames in bursts after a radio gap; the decoder's 250 ms age check bounds latency.

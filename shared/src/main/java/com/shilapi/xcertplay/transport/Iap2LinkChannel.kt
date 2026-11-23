@@ -20,7 +20,7 @@ class Iap2LinkChannel private constructor(
     private val underlying: BlockingDuplexByteStream,
     private val linkConfig: Iap2LinkConfig,
     private val initiateNegotiation: Boolean,
-    private val onArtwork: (Iap2ArtworkTransfer) -> Unit,
+    private val onArtwork: ((Iap2ArtworkTransfer) -> Unit)?,
 ) : AutoCloseable {
     private data class Command(val sessionId: Int, val payload: ByteArray)
 
@@ -29,7 +29,7 @@ class Iap2LinkChannel private constructor(
     private var commandBytes = 0
     private val controls = ArrayDeque<ByteArray>()
     private var controlBytes = 0
-    private val fileTransfers = Iap2FileTransferReceiver()
+    private val fileTransfers = Iap2FileTransferReceiver(acceptArtwork = onArtwork != null)
 
     private var ready = false
     private var peerMaxControlPayloadBytes: Int? = null
@@ -256,7 +256,7 @@ class Iap2LinkChannel private constructor(
                     }
                     outcome.completed?.let { completed ->
                         try {
-                            onArtwork(completed)
+                            onArtwork?.invoke(completed)
                         } catch (_: Exception) {
                             // A UI/consumer callback cannot terminate the control link.
                         }
@@ -389,7 +389,7 @@ class Iap2LinkChannel private constructor(
         /** Opens and immediately starts a wired iAP2 link, taking ownership of the supplied stream. */
         fun open(
             underlying: BlockingDuplexByteStream,
-            onArtwork: (Iap2ArtworkTransfer) -> Unit = {},
+            onArtwork: ((Iap2ArtworkTransfer) -> Unit)? = {},
         ): Iap2LinkChannel =
             Iap2LinkChannel(underlying, WIRED_LINK_CONFIG, initiateNegotiation = true, onArtwork)
                 .also { it.worker.start() }
@@ -400,7 +400,7 @@ class Iap2LinkChannel private constructor(
          */
         fun openWireless(
             underlying: BlockingDuplexByteStream,
-            onArtwork: (Iap2ArtworkTransfer) -> Unit = {},
+            onArtwork: ((Iap2ArtworkTransfer) -> Unit)? = {},
         ): Iap2LinkChannel =
             Iap2LinkChannel(underlying, WIRELESS_LINK_CONFIG, initiateNegotiation = false, onArtwork)
                 .also { it.worker.start() }
@@ -411,7 +411,7 @@ class Iap2LinkChannel private constructor(
          */
         fun openTunnel(
             underlying: BlockingDuplexByteStream,
-            onArtwork: (Iap2ArtworkTransfer) -> Unit = {},
+            onArtwork: ((Iap2ArtworkTransfer) -> Unit)? = {},
         ): Iap2LinkChannel =
             Iap2LinkChannel(underlying, WIRED_LINK_CONFIG, initiateNegotiation = true, onArtwork)
                 .also { it.worker.start() }

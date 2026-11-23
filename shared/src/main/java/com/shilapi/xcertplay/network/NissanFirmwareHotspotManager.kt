@@ -32,7 +32,11 @@ internal class NissanFirmwareHotspotManager(
             throw InterruptedIOException("Hotspot startup cancelled")
         }
         val startedAt = System.nanoTime()
-        val result = lease.enableIfOff()
+        val result = if (CarHotspotStatus.isEnabled(appContext) == true) {
+            NissanFirmwareHotspotLease.Result.ALREADY_ENABLED
+        } else {
+            lease.enableIfOff()
+        }
         if (closed.get() || isCancelled() || result == NissanFirmwareHotspotLease.Result.CANCELLED) {
             close()
             throw InterruptedIOException("Hotspot startup cancelled")
@@ -50,7 +54,7 @@ internal class NissanFirmwareHotspotManager(
 
         val elapsedMillis = (System.nanoTime() - startedAt).coerceAtLeast(0L) / 1_000_000L
         val remainingMillis = (timeoutMillis - elapsedMillis).coerceAtLeast(1L)
-        return delegate.start(remainingMillis)
+        return delegate.start(remainingMillis, alreadyEnabled = result == NissanFirmwareHotspotLease.Result.ALREADY_ENABLED)
     }
 
     override fun validateReady() = delegate.validateReady()

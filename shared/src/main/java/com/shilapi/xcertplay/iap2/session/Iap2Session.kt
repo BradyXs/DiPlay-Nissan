@@ -120,7 +120,7 @@ class Iap2Session private constructor(
             underlying: BlockingDuplexByteStream,
             traceContext: String = "wired",
             onTrace: (String) -> Unit = {},
-            onArtwork: (Iap2ArtworkTransfer) -> Unit = {},
+            onArtwork: ((Iap2ArtworkTransfer) -> Unit)? = {},
         ): Iap2Session =
             Iap2Session(Iap2CsmChannel.open(underlying, onArtwork), traceContext, onTrace)
 
@@ -128,7 +128,7 @@ class Iap2Session private constructor(
             underlying: BlockingDuplexByteStream,
             traceContext: String = "wireless",
             onTrace: (String) -> Unit = {},
-            onArtwork: (Iap2ArtworkTransfer) -> Unit = {},
+            onArtwork: ((Iap2ArtworkTransfer) -> Unit)? = {},
         ): Iap2Session =
             Iap2Session(Iap2CsmChannel.openWireless(underlying, onArtwork), traceContext, onTrace)
 
@@ -136,7 +136,7 @@ class Iap2Session private constructor(
             underlying: BlockingDuplexByteStream,
             traceContext: String = "wireless-tunnel",
             onTrace: (String) -> Unit = {},
-            onArtwork: (Iap2ArtworkTransfer) -> Unit = {},
+            onArtwork: ((Iap2ArtworkTransfer) -> Unit)? = {},
         ): Iap2Session =
             Iap2Session(Iap2CsmChannel.openTunnel(underlying, onArtwork), traceContext, onTrace)
 

@@ -29,6 +29,7 @@ import android.os.Looper
 import android.os.SystemClock
 import android.provider.Settings
 import android.util.Log
+import com.shilapi.xcertplay.airplay.PairVerifyPreparation
 import com.shilapi.xcertplay.airplay.AirPlayListenerIdentity
 import com.shilapi.xcertplay.airplay.AirPlayTcpAccepted
 import com.shilapi.xcertplay.airplay.AirPlayConfig
@@ -104,9 +105,12 @@ import java.net.InetAddress
 import java.net.Inet6Address
 import java.util.Locale
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.ExecutionException
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import java.util.concurrent.FutureTask
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
@@ -191,6 +195,8 @@ class CarPlayController(
     private val onAirPlayDucking: (Boolean) -> Unit = {},
     private val forceWiredUsbReenumerationAtStart: Boolean = false,
     private val onAirPlayDuckSessionReset: () -> Unit = {},
+    private val preparedLocalMfi: LocalMfiAuthenticationClient? = null,
+    private val automaticWirelessLaunch: Boolean = false,
 ) : Closeable {
     init {
         require(!config.locationReportingEnabled || locationProvider != null) {
@@ -203,6 +209,8 @@ class CarPlayController(
     private val appContext = context.applicationContext
     private val diagnosticAttempt = diagnosticAttempts.incrementAndGet()
     private val diagnosticRun = AtomicInteger()
+    private val startupStages = ConcurrentHashMap<String, Int>()
+    @Volatile private var startupStartedAtNanos = 0L
     private val usbManager: UsbManager? = if (realSdkInt() >= Build.VERSION_CODES.M) {
         context.getSystemService(UsbManager::class.java)
     } else {
@@ -227,6 +235,14 @@ class CarPlayController(
     private val tunnelExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     private val stallSnapshotExecutor: ExecutorService = Executors.newSingleThreadExecutor { task ->
         Thread(task, "diplay-wireless-stall-snapshot").apply { isDaemon = true }
+    }
+    private val pairVerifyPreparation = if (nissanAndroid44Profile && realSdkInt() == 19) PairVerifyPreparation() else null
+    private val takePreparedPairVerifyKey = pairVerifyPreparation?.let { preparation ->
+        {
+            preparation.take().also { key ->
+                connectionDiagnostic("AIRPLAY_STARTUP pairVerifyKey=${if (key != null) "prepared" else "generated_on_request"}")
+            }
+        }
     }
     @Volatile private var stallSnapshot: (() -> String)? = null
     private val lastStallSnapshotNs = java.util.concurrent.atomic.AtomicLong(0L)
@@ -276,6 +292,10 @@ class CarPlayController(
     /** Told when an iAP2 Now Playing artwork transfer completes; may run on the link worker. */
     @Volatile var artworkListener: ((Int, ByteArray) -> Unit)? = null
 
+    // KitKat's Nissan media controls and instrument display have no artwork consumer.
+    private val includeNowPlayingArtwork = !nissanAndroid44Profile || realSdkInt() >= 21
+    private val artworkReceiver = if (includeNowPlayingArtwork) ::onArtworkTransfer else null
+
     /** Receives raw CarPlay route-guidance frames for a metadata consumer; may run on any thread. */
     @Volatile var navigationFrameListener: ((com.shilapi.xcertplay.iap2.wire.Iap2Frame) -> Unit)? = null
 
@@ -311,17 +331,25 @@ class CarPlayController(
     private var attachCloseable: Closeable? = null
     private var detachCloseable: Closeable? = null
     private var ch341PermissionCloseable: Closeable? = null
+    private val vpnBindingLock = Any()
     private var vpnLatch = CountDownLatch(1)
     private val teardownComplete = CountDownLatch(1)
 
     private val serviceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName, binder: IBinder) {
-            vpnService = (binder as CarPlayVpnService.LocalBinder).service
-            vpnLatch.countDown()
+            synchronized(vpnBindingLock) {
+                if (closed || !vpnBound) return
+                vpnService = (binder as CarPlayVpnService.LocalBinder).service
+                vpnLatch.countDown()
+            }
+            recordStartupStage("airplay-service-bound")
         }
 
         override fun onServiceDisconnected(name: ComponentName) {
-            vpnService = null
+            synchronized(vpnBindingLock) {
+                if (closed || !vpnBound) return
+                vpnService = null
+            }
             fail(IphoneUsbException.DeviceUnavailable("CarPlay VPN service disconnected"))
         }
     }
@@ -332,6 +360,7 @@ class CarPlayController(
                 onAirPlayDuckSessionReset()
             }
             activeSession = session
+            recordStartupStage("airplay-session-active")
             val pendingCall = synchronized(callState) {
                 if (callState.current() == null) lastCallEndedAtMs = 0L
                 callState.current()
@@ -354,12 +383,22 @@ class CarPlayController(
             uiListener?.onSessionActive(session)
         }
 
+        override fun onVideoFrameRendered(session: AirPlaySession) {
+            if (closed || activeSession !== session) return
+            if (recordStartupStage("first-video-frame")) sampleMemoryAsync("first-video-frame")
+            uiListener?.onVideoFrameRendered(session)
+        }
+
         override fun onSessionEnded(session: AirPlaySession) {
             if (activeSession === session) {
                 onAirPlayDuckSessionReset()
                 activeSession = null
                 if (config.transport == CarPlayTransport.WIRED) {
                     wiredTcpArrived.set(false)
+                    if (!closed) {
+                        connectionDiagnostic("wired-loss signal=active-airplay-ended")
+                        sampleMemoryAsync("wired-airplay-ended")
+                    }
                     debugLog("wired AirPlay session ended; clearing control-loop liveness marker")
                 }
                 firmwareHfpSession?.refresh()
@@ -387,6 +426,10 @@ class CarPlayController(
         }
 
         override fun onTransportError(message: String) {
+            if (!closed && config.transport == CarPlayTransport.WIRED) {
+                connectionDiagnostic("wired-loss signal=transport-error")
+            }
+            sampleMemoryAsync("transport-error")
             debugLog("AirPlay transport error: $message")
             uiListener?.onTransportError(message)
         }
@@ -472,6 +515,17 @@ class CarPlayController(
         }
 
         override fun onDebugLog(message: String) {
+            if (message.startsWith("NCM_STARTUP ") || message.startsWith("AIRPLAY_STARTUP ")) {
+                connectionDiagnostic(message)
+                return
+            }
+            when {
+                message.startsWith("wired VPN TUN established ") -> recordStartupStage("vpn-tun-ready")
+                message == "wired NCM IPv6 bridge started" -> recordStartupStage("ncm-bridge-ready")
+                message == "airplay control encryption enabled" -> recordStartupStage("airplay-control-encrypted")
+                message.startsWith("airplay screen stream type=110 dataPort=") && !message.endsWith("rejected") ->
+                    recordStartupStage("airplay-main-stream-ready")
+            }
             debugLog(message)
         }
     }
@@ -557,7 +611,9 @@ class CarPlayController(
         synchronized(this) {
             if (closed) return
         }
-        connectionDiagnostic("start transport=${config.transport}")
+        startupStartedAtNanos = System.nanoTime()
+        recordStartupStage("controller-start")
+        connectionDiagnostic("start transport=${config.transport} nowPlayingArtwork=$includeNowPlayingArtwork")
         connectionDiagnostic("memory snapshot point=controller-start ${MemoryPressureSnapshot.describe(appContext)}")
         if (config.transport == CarPlayTransport.WIRED && firmwareHfpSession == null &&
             AnwPhoneLinkSnapshot.isInstalled(appContext)) {
@@ -570,11 +626,30 @@ class CarPlayController(
             }, ::debugLog)
         }
         if (!hasRequiredUsbService()) return
+        pairVerifyPreparation?.let { preparation ->
+            try {
+                stallSnapshotExecutor.execute {
+                    val startedAt = System.nanoTime()
+                    val result = runCatching { preparation.prepare() }
+                    if (!closed) connectionDiagnostic(
+                        "AIRPLAY_STARTUP pairVerifyPreparation=${when (result.getOrNull()) {
+                            true -> "ready"
+                            false -> "unused"
+                            null -> "failed"
+                        }} elapsedMs=${(System.nanoTime() - startedAt) / 1_000_000L}",
+                    )
+                }
+            } catch (_: java.util.concurrent.RejectedExecutionException) {
+                // Controller closed while startup was scheduling optional preparation.
+            }
+        }
         if (config.transport == CarPlayTransport.WIRED) {
             permissionCloseable = iphoneHost.registerPermissionReceiver(::onIphonePermission)
             attachCloseable = iphoneHost.registerAttachReceiver(::onIphoneAttached)
             detachCloseable = iphoneHost.registerDetachReceiver(::onIphoneDetached)
         }
+        // Binding does not establish a VPN. Do it while preparing the local identity and USB/radio.
+        if (nissanAndroid44Profile) bindVpn()
         startMfi()
     }
 
@@ -725,6 +800,7 @@ class CarPlayController(
         touchExecutor.shutdownNow()
         tunnelExecutor.shutdownNow()
         stallSnapshot = null
+        pairVerifyPreparation?.close()
         stallSnapshotExecutor.shutdownNow()
         val service = vpnService
         unbindVpn()
@@ -1001,9 +1077,11 @@ class CarPlayController(
         executor.execute {
             try {
                 val signatures = AtomicInteger(0)
-                val client = LocalMfiAuthenticationClient.load(directory) { size ->
+                val onSignature: (Int) -> Unit = { size ->
                     debugLog("mfi local signature count=${signatures.incrementAndGet()} digestBytes=$size")
                 }
+                val client = preparedLocalMfi?.withSignatureListener(onSignature)
+                    ?: LocalMfiAuthenticationClient.load(directory, onSignature)
                 if (closed || phase != Phase.MFI) return@execute
                 mfiSession = MfiSession(client, null)
                 debugLog("mfi local offline ready protocolMajor=${client.protocolMajor()} certificateBytes=${client.readCertificate().size}")
@@ -1274,6 +1352,7 @@ class CarPlayController(
     }
 
     private fun startPhone() {
+        recordStartupStage("mfi-ready")
         if (config.locationReportingEnabled) {
             val started = try {
                 locationProvider?.start() == true
@@ -1333,6 +1412,7 @@ class CarPlayController(
 
     private fun runWireless(generation: Int) {
         var stage = "hotspot startup"
+        var bluetoothPreparation: FutureTask<Unit>? = null
         try {
             debugLog("wireless bring-up generation=$generation starting")
             closeWirelessStack(generation = generation)
@@ -1373,10 +1453,18 @@ class CarPlayController(
             firstTcpWatchdog = watchdog
             val mfi = mfiSession?.client
                 ?: throw IOException("MFi coprocessor client is unavailable")
-            val hotspotInfo = startWirelessHotspot(generation)
-            if (isStaleWirelessRun(generation)) {
-                return
+            val adapter = bluetoothAdapter
+            val hybridAdapter = CarPlayBluetoothManager.get(appContext)
+            if (nissanAndroid44Profile) {
+                bluetoothPreparation = FutureTask { prepareWirelessBluetooth(generation, adapter, hybridAdapter) }
+                Thread(bluetoothPreparation, "diplay-wireless-bluetooth-start").apply {
+                    isDaemon = true
+                    start()
+                }
             }
+            val hotspotInfo = startWirelessHotspot(generation)
+            if (isStaleWirelessRun(generation)) return
+            recordStartupStage("hotspot-ready")
             val startedHotspot = hotspot
             wirelessConnectionProof.begin(generation) {
                 if (!isStaleWirelessRun(generation)) startedHotspot?.onCarPlayConfirmed()
@@ -1433,37 +1521,7 @@ class CarPlayController(
                     backend = hotspotInfo.backend.label,
                 ),
             )
-            onStatus(CarPlayStatus.WaitingForPairedIphone)
-            stage = "Bluetooth device selection"
-
-            val adapter = bluetoothAdapter
-            val hybridAdapter = CarPlayBluetoothManager.get(appContext)
-            if (nissanAndroid44Profile) {
-                // Nissan's Android BluetoothAdapter may be absent even though its Anw service is active.
-                // Always prepare the OEM radio for the wireless iAP2 bootstrap.
-                val wasEnabled = hybridAdapter.isEnabled()
-                if (!wasEnabled) {
-                    val requested = hybridAdapter.enable()
-                    debugLog("Nissan Bluetooth startup power-on requested=$requested backend=${hybridAdapter.getAdapterName()}")
-                    val enableDeadline = System.currentTimeMillis() + 2500L
-                    while (!isStaleWirelessRun(generation) && !hybridAdapter.isEnabled() &&
-                        System.currentTimeMillis() < enableDeadline) {
-                        try { Thread.sleep(200L) } catch (_: InterruptedException) { break }
-                    }
-                }
-                debugLog("Nissan Bluetooth startup enabled=${hybridAdapter.isEnabled()}")
-            } else if (adapter != null && !adapter.isEnabled) {
-                runCatching { adapter.enable() }
-                val enableDeadline = System.currentTimeMillis() + 2500L
-                while (!adapter.isEnabled && System.currentTimeMillis() < enableDeadline) {
-                    try {
-                        Thread.sleep(200L)
-                    } catch (_: InterruptedException) {
-                        break
-                    }
-                }
-            }
-            val device = try {
+            fun selectDevice(): CarPlayBluetoothDevice? = try {
                 val savedAddress = config.wirelessBluetoothDeviceAddress
                 val hasSavedDevice = savedAddress != null && BluetoothAdapter.checkBluetoothAddress(savedAddress)
                 if (hasSavedDevice || adapter?.isEnabled == true || hybridAdapter.isEnabled()) {
@@ -1471,14 +1529,37 @@ class CarPlayController(
                 } else {
                     null
                 }
-            } catch (error: Throwable) {
-                debugLog("wireless Bluetooth device selection not available: ${error.message}; proceeding with Wi-Fi discovery")
+            } catch (error: Exception) {
+                debugLog("wireless Bluetooth device selection not available: ${error.javaClass.simpleName}; proceeding with Wi-Fi discovery")
                 null
             }
-            val hostBluetoothMac = accessoryBluetoothMac(adapter)
-            debugLog(
-                "wireless selected Bluetooth target targetAddress=${device?.address ?: "none"} localBt=$hostBluetoothMac",
-            )
+
+            fun awaitBluetoothPreparation() {
+                val preparation = bluetoothPreparation
+                if (preparation == null) prepareWirelessBluetooth(generation, adapter, hybridAdapter)
+                else awaitStartupTask(preparation)
+            }
+
+            // A saved or cached local Bluetooth address lets an already associated iPhone
+            // discover the listener while the radio is still powering up.
+            val knownHostMac = if (nissanAndroid44Profile) {
+                BluetoothAddressResolver.normalize(airPlayConfig.manualBluetoothMac)
+                    ?: BluetoothAddressResolver.normalize(airPlayConfig.btMac)
+                        ?.takeUnless { it.equals(airPlayConfig.deviceId, ignoreCase = true) }
+            } else null
+            val selectedBeforeListener: CarPlayBluetoothDevice?
+            val hostBluetoothMac: String
+            if (knownHostMac != null) {
+                selectedBeforeListener = null
+                hostBluetoothMac = knownHostMac
+            } else {
+                onStatus(CarPlayStatus.WaitingForPairedIphone)
+                stage = "Bluetooth preparation"
+                awaitBluetoothPreparation()
+                if (isStaleWirelessRun(generation)) return
+                selectedBeforeListener = selectDevice()
+                hostBluetoothMac = accessoryBluetoothMac()
+            }
             val wirelessAirPlayConfig = airPlayConfig.copy(
                 deviceId = deviceIdentifier,
                 btMac = hostBluetoothMac,
@@ -1502,6 +1583,7 @@ class CarPlayController(
                         listenerIdentity = watchdog.listener,
                         media = media,
                         additionalBindAddresses = hotspotInfo.hostAddresses.filter { it != hostAddress },
+                        takePreparedPairVerifyKey = takePreparedPairVerifyKey,
                     )
                 ) {
                     is CarPlayVpnService.AttachResult.Started -> Unit
@@ -1511,6 +1593,7 @@ class CarPlayController(
                         throw IOException(result.message)
                 }
             }
+            recordStartupStage("airplay-listener-ready")
             val listenerPort = service.boundPort() ?: wirelessAirPlayConfig.port
             val advertisedAirPlayConfig = wirelessAirPlayConfig.copy(port = listenerPort)
             debugLog(
@@ -1584,9 +1667,20 @@ class CarPlayController(
             startedBonjour = bonjourClient
             diagnostics.start()
             debugLog("wireless Bonjour services started mode=interface iface=${hotspotInfo.interfaceName ?: "unknown"}")
+            recordStartupStage("bonjour-ready")
             if (isStaleWirelessRun(generation)) {
                 return
             }
+
+            val device = if (knownHostMac != null) {
+                if (activeSession != null || wirelessActiveReported.get()) return
+                onStatus(CarPlayStatus.WaitingForPairedIphone)
+                stage = "Bluetooth device selection"
+                awaitBluetoothPreparation()
+                if (isStaleWirelessRun(generation) || activeSession != null || wirelessActiveReported.get()) return
+                selectDevice()
+            } else selectedBeforeListener
+            debugLog("wireless selected Bluetooth target targetAddress=${device?.address ?: "none"} localBt=$hostBluetoothMac")
 
             if (device != null) {
                 onStatus(CarPlayStatus.ConnectingBluetooth)
@@ -1612,6 +1706,7 @@ class CarPlayController(
                         bluetoothStream = stream
                         val elapsed = elapsedMillis(bluetoothStarted)
                         connectionDiagnostic("Bluetooth connect completed elapsedMs=$elapsed")
+                        recordStartupStage("rfcomm-connected")
                         debugLog("wireless RFCOMM connected address=${device.address}")
                         break
                     } catch (e: Throwable) {
@@ -1649,7 +1744,7 @@ class CarPlayController(
                     stream,
                     traceContext = "wireless-rfcomm",
                     onTrace = ::debugLog,
-                    onArtwork = ::onArtworkTransfer,
+                    onArtwork = artworkReceiver,
                 )
                 synchronized(wirelessResourceLock) {
                     if (isStaleWirelessRun(generation)) {
@@ -1672,16 +1767,23 @@ class CarPlayController(
                 val result = Iap2WirelessControlClient(
                     session = channel,
                     mfi = Iap2MfiAuthenticationClient(mfi),
+                    includeArtwork = includeNowPlayingArtwork,
                 ).run(
                     identification = bootstrapIdentification,
                     endpoint = endpoint,
                     timeoutMillis = controlLoopTimeoutMillis(),
                     keepAliveAfterDeadline = { keepBluetoothControlAlive(generation) },
                     beforeStartSession = { startedHotspot?.validateReady() },
-                    onStartSessionSent = { watchdog.startSessionSent(it.sentAtNanos) },
+                    onStartSessionSent = {
+                        recordStartupStage("start-session-sent", it.sentAtNanos)
+                        watchdog.startSessionSent(it.sentAtNanos)
+                    },
+                    startOnWirelessAvailability = nissanAndroid44Profile,
+                    airPlayConnectionPending = { vpnService?.hasAirPlaySessions() == true },
                     onIncoming = ::onRouteFrame,
                     onProgress = { message ->
                         diagnostics.controlProgress(message)
+                        recordIap2StartupStage(message)
                         debugLog(message)
                     },
                 )
@@ -1768,6 +1870,42 @@ class CarPlayController(
                 fail(error, generation)
                 closeWirelessStack(generation = generation)
             }
+        } finally {
+            bluetoothPreparation?.cancel(true)
+        }
+    }
+
+    private fun prepareWirelessBluetooth(
+        generation: Int,
+        adapter: BluetoothAdapter?,
+        hybridAdapter: HybridBluetoothAdapter,
+    ) {
+        if (isStaleWirelessRun(generation)) return
+        if (nissanAndroid44Profile) {
+            // The Nissan Android adapter may be absent when the OEM radio is available.
+            if (!hybridAdapter.isEnabled() && !isStaleWirelessRun(generation)) {
+                val requested = hybridAdapter.enable()
+                debugLog("Nissan Bluetooth startup power-on requested=$requested backend=${hybridAdapter.getAdapterName()}")
+                val waitMillis = if (automaticWirelessLaunch) AUTO_BLUETOOTH_READY_MILLIS else BLUETOOTH_READY_MILLIS
+                val deadline = SystemClock.elapsedRealtime() + waitMillis
+                while (!isStaleWirelessRun(generation) && activeSession == null &&
+                    !hybridAdapter.isEnabled() && SystemClock.elapsedRealtime() < deadline) {
+                    Thread.sleep(BLUETOOTH_STARTUP_POLL_MILLIS)
+                }
+            }
+            val enabled = hybridAdapter.isEnabled()
+            debugLog("Nissan Bluetooth startup enabled=$enabled")
+            if (enabled && !isStaleWirelessRun(generation)) recordStartupStage("bluetooth-ready")
+        } else if (adapter != null) {
+            if (!adapter.isEnabled) {
+                runCatching { adapter.enable() }
+                val deadline = SystemClock.elapsedRealtime() + BLUETOOTH_READY_MILLIS
+                while (!isStaleWirelessRun(generation) && !adapter.isEnabled &&
+                    SystemClock.elapsedRealtime() < deadline) {
+                    Thread.sleep(BLUETOOTH_STARTUP_POLL_MILLIS)
+                }
+            }
+            if (adapter.isEnabled && !isStaleWirelessRun(generation)) recordStartupStage("bluetooth-ready")
         }
     }
 
@@ -1782,7 +1920,7 @@ class CarPlayController(
                 stream,
                 traceContext = "wireless-tunnel",
                 onTrace = ::debugLog,
-                onArtwork = ::onArtworkTransfer,
+                onArtwork = artworkReceiver,
             )
         } catch (error: Throwable) {
             debugLog("Could not open the tunneled iAP2 link", error)
@@ -1801,6 +1939,7 @@ class CarPlayController(
                     val result = Iap2WirelessControlClient(
                         session = channel,
                         mfi = Iap2MfiAuthenticationClient(mfi),
+                        includeArtwork = includeNowPlayingArtwork,
                     ).run(
                         identification = identification,
                         endpoint = endpoint,
@@ -1848,7 +1987,10 @@ class CarPlayController(
 
             override fun onTcpAccepted(event: AirPlayTcpAccepted) {
                 if (isStaleWirelessRun(generation)) return
-                if (watchdog.accepted(event)) wirelessDiagnostics?.connectionAccepted()
+                if (watchdog.accepted(event)) {
+                    recordStartupStage("first-airplay-tcp", event.acceptedAtNanos)
+                    wirelessDiagnostics?.connectionAccepted()
+                }
             }
 
             override fun onTransportError(message: String) {
@@ -1891,7 +2033,7 @@ class CarPlayController(
                         true
                     }
                 }
-                if (firstFrame) uiListener?.onVideoFrameRendered(session)
+                if (firstFrame) sessionListener.onVideoFrameRendered(session)
             }
 
             override fun onDebugLog(message: String) {
@@ -2055,6 +2197,7 @@ class CarPlayController(
             logVisibleUsbDevicesThrottled()
             scheduleAvailabilityPoll(Phase.IPHONE, ::checkIphoneAvailability)
         } else {
+            recordStartupStage("usb-device-present")
             debugLog(
                 "wired iPhone discovered vid=0x${device.vendorId.toString(16)} " +
                     "pid=0x${device.productId.toString(16)}",
@@ -2108,6 +2251,9 @@ class CarPlayController(
                 is IphoneUsbHost.PermissionResult.Granted -> {
                     // The system broadcast and the polling fallback can both observe the grant.
                     if (!permissionGrant.compareAndSet(false, true)) return
+                    recordStartupStage(
+                        if (phase == Phase.REENUMERATION) "usb-reenumerated" else "usb-permission-granted",
+                    )
                     debugLog("wired iPhone USB permission granted")
                     permissionPollGeneration++
                     when (phase) {
@@ -2221,6 +2367,7 @@ class CarPlayController(
         phase = Phase.REENUMERATION
         reenumerationAttempts += 1
         val generation = availabilityPollGeneration.incrementAndGet()
+        recordStartupStage("usb-reenumeration-requested")
         connectionDiagnostic("USB transition requested count=$reenumerationAttempts")
         onStatus(CarPlayStatus.SelectingConfiguration)
         iphoneHost.requestCarPlayReenumerationAsync(device, executor) { transition ->
@@ -2275,6 +2422,7 @@ class CarPlayController(
     private fun onIphoneAttached(device: UsbDevice) {
         when (phase) {
             Phase.REENUMERATION, Phase.IPHONE -> {
+                recordStartupStage("usb-device-present")
                 availabilityPollGeneration.incrementAndGet()
                 requestIphonePermission(device)
             }
@@ -2287,7 +2435,9 @@ class CarPlayController(
             (phase != Phase.IPHONE && phase != Phase.DATAPATHS && phase != Phase.CONTROL)) return
         val reason = "iPhone USB detached vid=0x${device.vendorId.toString(16)} " +
             "pid=0x${device.productId.toString(16)}"
+        connectionDiagnostic("wired-loss signal=usb-detached")
         connectionDiagnostic("$reason; ending wired CarPlay session")
+        sampleMemoryAsync("wired-usb-detached")
         uiListener?.onUsbDeviceDisconnected(reason)
     }
 
@@ -2318,6 +2468,7 @@ class CarPlayController(
                 is IphoneUsbHost.Iap2SessionResult.Connected -> {
                     try {
                         val ncm = openNcm(device, result.session)
+                        recordStartupStage("usb-data-paths-ready")
                         runStack(device, result.session, ncm)
                     } catch (error: Throwable) {
                         result.session.close()
@@ -2361,6 +2512,7 @@ class CarPlayController(
         phase = Phase.CONTROL
         wiredTcpArrived.set(false)
         var ncmOwnedLocally = true
+        var preparedNetwork: FutureTask<Iap2WiredCarPlayEndpoint>? = null
         try {
             if (closed) return
             val mux = Iap2UsbMuxHost.open(usbSession, onDiagnostic = ::connectionDiagnostic)
@@ -2423,6 +2575,7 @@ class CarPlayController(
                 carKitClient.open(pairRecord, config.label)
             }
             debugLog("wired com.apple.carkit.service stream opened")
+            recordStartupStage("lockdown-carkit-open")
             // Lab transport diagnostics: packet headers only, never certificate or challenge data.
             fun wireSummary(bytes: ByteArray): String {
                 if (bytes.size < 9 || bytes[0].toInt() and 0xff != 0xff ||
@@ -2472,53 +2625,73 @@ class CarPlayController(
                 tracedCarkit,
                 traceContext = "wired",
                 onTrace = ::debugLog,
-                onArtwork = ::onArtworkTransfer,
+                onArtwork = artworkReceiver,
             )
             this.csm = csm
             debugLog("wired iAP2 CSM channel opened")
 
+            recordStartupStage("wired-iap2-channel-open")
             val ncmHostMac = ncm.hostMac ?: config.hostMac
-            debugLog("ncm using hostMac=${ncmHostMac.macString()}")
-            val vpnAttachError = attachVpn(ncm, ncmHostMac)
-            if (vpnAttachError != null) {
-                throw IphoneUsbException.DeviceUnavailable(
-                    "Could not attach the NCM/VPN AirPlay transport: $vpnAttachError",
-                )
-            }
-            ncmOwnedLocally = false
-            debugLog("wired NCM/VPN AirPlay transport attached")
-            if (closed) {
-                vpnService?.detach()
-                return
-            }
-
             val mfi = mfiSession?.client
                 ?: throw IphoneUsbException.DeviceUnavailable("MFi coprocessor client is unavailable")
-            val endpoint = Iap2WiredCarPlayEndpoint(
+            fun endpoint(port: Int) = Iap2WiredCarPlayEndpoint(
                 ipv6Addresses = listOf(config.linkLocal),
-                airPlayPort = vpnService?.boundPort() ?: airPlayConfig.port,
+                airPlayPort = port,
                 publicKey = identity.publicKeyHex,
                 sourceVersion = airPlayConfig.sourceVersion,
                 deviceIdentifier = ncmHostMac.macString(),
             )
+            val attachNetwork = {
+                if (closed) throw java.io.InterruptedIOException("Wired startup cancelled")
+                attachVpn(ncm, ncmHostMac, reportStatus = false)?.let { error ->
+                    throw IphoneUsbException.DeviceUnavailable("Could not attach the NCM/VPN AirPlay transport: $error")
+                }
+                recordStartupStage("airplay-listener-ready")
+                debugLog("wired NCM/VPN AirPlay transport attached")
+                val port = vpnService?.boundPort()
+                    ?: throw IphoneUsbException.DeviceUnavailable("The wired AirPlay listener has no bound port")
+                endpoint(port)
+            }
+            onStatus(CarPlayStatus.AttachingNetwork)
+            val controlEndpoint = if (nissanAndroid44Profile) {
+                // NCM and iAP2 use separate endpoints on the same authorized usbfs fd.
+                // The iAP2 loop waits for the actual bound port before sending StartSession.
+                val task = FutureTask(attachNetwork)
+                Thread(task, "diplay-wired-network-start").apply { isDaemon = true; start() }
+                preparedNetwork = task
+                endpoint(airPlayConfig.port)
+            } else {
+                attachNetwork().also { ncmOwnedLocally = false }
+            }
+            if (closed) {
+                if (!ncmOwnedLocally) vpnService?.detach()
+                return
+            }
+
             onStatus(CarPlayStatus.RunningControl)
             debugLog(
                 "wired iAP2 runtime control starting " +
                     "location=${config.identification.locationInformationEnabled} " +
                     "vehicleStatus=${config.identification.vehicleStatusEnabled}",
             )
-            val result = Iap2WiredControlClient(csm, Iap2MfiAuthenticationClient(mfi)).run(
+            val result = Iap2WiredControlClient(
+                session = csm,
+                mfi = Iap2MfiAuthenticationClient(mfi),
+                includeArtwork = includeNowPlayingArtwork,
+            ).run(
                 identification = config.identification,
-                endpoint = endpoint,
+                endpoint = controlEndpoint,
                 availableCurrentMilliAmps = config.availableCurrentMilliAmps,
                 timeoutMillis = controlLoopTimeoutMillis(),
                 locationProvider = locationProvider,
                 vehicleStatusProvider = vehicleStatusProvider,
                 onIncoming = ::onRouteFrame,
                 onProgress = { message ->
+                    recordIap2StartupStage(message)
                     debugLog("wired $message")
                     if (message.startsWith("iap2 tx=0x4301 carplay-start-session")) {
-                        vpnService?.sendUnsolicitedNeighborAdvertisement(force = true)
+                        recordStartupStage("start-session-sent")
+                        vpnService?.onWiredCarPlayStartSessionSent()
                     }
                 },
                 airPlayTcpArrived = { wiredTcpArrived.get() },
@@ -2531,7 +2704,19 @@ class CarPlayController(
                 reattachNcmVpn = if (nissanAndroid44Profile) {
                     { currentEndpoint -> reattachWiredNcmVpn(device, usbSession, currentEndpoint) }
                 } else null,
+                awaitAirPlayEndpoint = preparedNetwork?.let { task ->
+                    {
+                        val ready = awaitStartupTask(task)
+                        ncmOwnedLocally = false
+                        if (closed) throw java.io.InterruptedIOException("Wired startup cancelled")
+                        ready
+                    }
+                },
             )
+            if (!closed) {
+                connectionDiagnostic("wired-loss signal=iap2-terminal terminal=${result.terminal} stage=${result.stage}")
+                sampleMemoryAsync("wired-iap2-terminal")
+            }
             debugLog("wired control ended terminal=${result.terminal} stage=${result.stage} " +
                 "forwarded=${result.forwardedFrames} starts=${result.carPlayStartSessionsSent} " +
                 "airPlaySessionActive=${wiredTcpArrived.get()}")
@@ -2560,9 +2745,28 @@ class CarPlayController(
             if (!ncmOwnedLocally) vpnService?.detach()
             fail(error)
         } finally {
-            if (ncmOwnedLocally) ncm.close()
+            if (ncmOwnedLocally) {
+                // The control side can end before the phone sends availability. Drain network
+                // preparation before releasing the shared USB connection or starting a retry.
+                val task = preparedNetwork
+                if (task != null && runCatching { awaitStartupTask(task) }.isSuccess) {
+                    vpnService?.detach()
+                } else {
+                    ncm.close()
+                }
+            }
         }
     }
+
+    private fun <T> awaitStartupTask(task: FutureTask<T>): T =
+        try {
+            task.get()
+        } catch (error: ExecutionException) {
+            throw error.cause ?: error
+        } catch (error: InterruptedException) {
+            Thread.currentThread().interrupt()
+            throw java.io.InterruptedIOException("Connection preparation cancelled").apply { initCause(error) }
+        }
 
     /**
      * Rebuilds only the wired NCM/VPN path. USBMUX and its authenticated iAP2 session stay open;
@@ -2999,7 +3203,7 @@ class CarPlayController(
     }
 
     @Suppress("DEPRECATION")
-    private fun accessoryBluetoothMac(adapter: BluetoothAdapter?): String {
+    private fun accessoryBluetoothMac(): String {
         BluetoothAddressResolver.normalize(airPlayConfig.manualBluetoothMac)?.let { return it }
         val managerAddress = try {
             CarPlayBluetoothManager.get(appContext).localAddress(appContext)
@@ -3051,6 +3255,10 @@ class CarPlayController(
             ncm.close()
             return "VPN service bind timed out or was unavailable"
         }
+        if (closed) {
+            ncm.close()
+            throw java.io.InterruptedIOException("Wired startup cancelled")
+        }
         debugLog("wired VPN service bound; attaching NCM transport")
         val result = try {
             service.attach(
@@ -3063,6 +3271,9 @@ class CarPlayController(
                 mfi = mfiSession?.client,
                 listener = sessionListener,
                 media = media,
+                asyncNeighborAdvertisement = nissanAndroid44Profile,
+                onWiredTcpAccepted = { recordStartupStage("first-airplay-tcp", it) },
+                takePreparedPairVerifyKey = takePreparedPairVerifyKey,
             )
         } catch (error: Throwable) {
             ncm.close()
@@ -3071,6 +3282,10 @@ class CarPlayController(
         }
         return when (result) {
             is CarPlayVpnService.AttachResult.Started -> {
+                if (closed) {
+                    service.detach()
+                    throw java.io.InterruptedIOException("Wired startup cancelled")
+                }
                 debugLog("wired VPN/NCM transport attach result=started")
                 null
             }
@@ -3095,18 +3310,18 @@ class CarPlayController(
 
     private fun awaitVpnService(): CarPlayVpnService? {
         vpnService?.let { return it }
-        bindVpn()
+        val latch = bindVpn() ?: return null
         return try {
-            if (vpnLatch.await(VPN_CONNECT_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)) vpnService else null
+            if (latch.await(VPN_CONNECT_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)) vpnService else null
         } catch (_: InterruptedException) {
             Thread.currentThread().interrupt()
             null
         }
     }
 
-    private fun bindVpn() {
-        if (vpnBound) return
-        // A failed previous bind can leave a completed latch behind for the next attempt.
+    private fun bindVpn(): CountDownLatch? = synchronized(vpnBindingLock) {
+        if (closed) return null
+        if (vpnBound) return vpnLatch
         vpnLatch = CountDownLatch(1)
         vpnBound = true
         try {
@@ -3115,21 +3330,23 @@ class CarPlayController(
                 vpnBound = false
                 vpnLatch.countDown()
             }
-        } catch (_: Throwable) {
+        } catch (_: Exception) {
             vpnBound = false
             vpnLatch.countDown()
         }
+        vpnLatch
     }
 
-    private fun unbindVpn() {
+    private fun unbindVpn() = synchronized(vpnBindingLock) {
         if (!vpnBound) return
         vpnBound = false
+        vpnService = null
+        vpnLatch.countDown()
         try {
             appContext.unbindService(serviceConnection)
         } catch (_: Exception) {
             // The service may have already been unbound.
         }
-        vpnService = null
     }
 
     private fun closeReceivers() {
@@ -3224,6 +3441,39 @@ class CarPlayController(
         } catch (_: Exception) {
             // Optional diagnostics must not change transport or shutdown behavior.
         }
+    }
+
+    private fun recordStartupStage(stage: String, atNanos: Long = System.nanoTime()): Boolean {
+        val started = startupStartedAtNanos
+        if (closed || started == 0L) return false
+        val run = diagnosticRun.get()
+        if (startupStages.put(stage, run) == run) return false
+        val totalMs = (atNanos - started).coerceAtLeast(0L) / 1_000_000L
+        connectionDiagnostic("startupTiming transport=${config.transport} point=$stage totalMs=$totalMs")
+        return true
+    }
+
+    private fun sampleMemoryAsync(point: String) {
+        if (closed) return
+        val run = diagnosticRun.get()
+        runCatching {
+            stallSnapshotExecutor.execute {
+                if (run == diagnosticRun.get()) {
+                    connectionDiagnostic("memory snapshot point=$point ${MemoryPressureSnapshot.describe(appContext)}")
+                }
+            }
+        }
+    }
+
+    private fun recordIap2StartupStage(progress: String) {
+        val stage = when (progress) {
+            "iap2 identification accepted" -> "iap2-identified"
+            "iap2 authentication accepted" -> "iap2-authenticated"
+            "iap2 tx=0x5703 accessory-wifi-configuration",
+            "iap2 tx=0x5703 post-transport accessory-wifi-configuration" -> "wifi-configuration-sent"
+            else -> return
+        }
+        recordStartupStage(stage)
     }
 
     private fun diagnosticFailureClass(error: Throwable): String =
@@ -3348,6 +3598,9 @@ class CarPlayController(
         private const val DEVICE_AVAILABILITY_POLL_INTERVAL_MILLIS = 2_000L
         private const val NO_IPHONE_DEVICES_LOG_INTERVAL_MILLIS = 10_000L
         private const val WIRELESS_HANDOFF_TIMEOUT_MILLIS = 45_000L
+        private const val BLUETOOTH_READY_MILLIS = 2_500L
+        private const val AUTO_BLUETOOTH_READY_MILLIS = 20_000L
+        private const val BLUETOOTH_STARTUP_POLL_MILLIS = 200L
         private const val RFCOMM_CONNECT_TIMEOUT_MILLIS = 15_000L
         private const val MAXIMUM_REENUMERATION_ATTEMPTS = 2
         private const val EXECUTOR_CLOSE_TIMEOUT_MILLIS = 2_000L

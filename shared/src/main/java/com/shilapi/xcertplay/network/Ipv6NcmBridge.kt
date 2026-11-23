@@ -10,7 +10,11 @@ import java.io.FileOutputStream
 import java.io.IOException
 import java.net.Inet6Address
 import java.net.InetAddress
+import java.util.concurrent.ArrayBlockingQueue
+import java.util.concurrent.ThreadPoolExecutor
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.locks.LockSupport
 
 /**
@@ -28,6 +32,7 @@ class Ipv6NcmBridge(
     private val hostLinkLocal: String,
     private val onDebugLog: (String) -> Unit = {},
     private val onError: (Throwable) -> Unit,
+    private val asyncNeighborAdvertisement: Boolean = false,
 ) : Closeable {
     init {
         require(hostMac.size == EthernetIpv6Codec.MAC_BYTES) { "hostMac must be 6 bytes" }
@@ -61,7 +66,20 @@ class Ipv6NcmBridge(
     private var outboundLogBudget = 24
     @Volatile
     private var lastNaTimeNanos = 0L
+    // Share one writer for unsolicited announcements. If USB is slow, retain only the latest
+    // pending announcement so StartSession and inbound traffic cannot build a backlog.
+    private val announcements = if (asyncNeighborAdvertisement) ThreadPoolExecutor(
+        1, 1, 0L, TimeUnit.MILLISECONDS, ArrayBlockingQueue<Runnable>(1),
+        { task -> Thread(task, "ncm-neighbor-advertisement").apply { isDaemon = true } },
+        ThreadPoolExecutor.DiscardOldestPolicy(),
+    ) else null
     private val running = AtomicBoolean(false)
+    private var startedAtNanos = 0L
+    private var seenTcpSyn = false
+    private var seenInboundIpv6 = false
+    private val announcementReports = AtomicInteger(INITIAL_NA_REPORT_LIMIT)
+    private val startupPacketGate = NcmStartupPacketGate(asyncNeighborAdvertisement)
+    private val outboundWriteReports = AtomicInteger(8)
     private lateinit var ncmToTunThread: Thread
     private lateinit var tunToNcmThread: Thread
 
@@ -72,7 +90,8 @@ class Ipv6NcmBridge(
         // Without this, our unicast NA reply is silently dropped while peerMac is still null,
         // causing a deadlock: iPhone never learns fe80::2's MAC, never connects AirPlay TCP,
         // and the USB read queue times out with "FAILED: Android could not queue USBMUX read request".
-        sendUnsolicitedNeighborAdvertisement(force = true)
+        startedAtNanos = System.nanoTime()
+        if (announcements == null) sendUnsolicitedNeighborAdvertisement(force = true)
         ncmToTunThread = Thread(::runNcmToTun, "ncm-ipv6-in").apply {
             isDaemon = true
             start()
@@ -81,14 +100,29 @@ class Ipv6NcmBridge(
             isDaemon = true
             start()
         }
+        if (announcements != null) sendUnsolicitedNeighborAdvertisement(force = true)
     }
 
     override fun close() {
         if (!running.compareAndSet(true, false)) return
+        announcements?.shutdownNow()
         ncm.close()
         tun.close()
-        join(ncmToTunThread)
-        join(tunToNcmThread)
+        if (::ncmToTunThread.isInitialized) join(ncmToTunThread)
+        if (::tunToNcmThread.isInitialized) join(tunToNcmThread)
+    }
+
+    /** Called only after the wired iAP2 CarPlayStartSession write completes. */
+    fun onCarPlayStartSessionSent() {
+        if (!running.get()) return
+        val discarded = startupPacketGate.onStartSessionSent()
+        if (asyncNeighborAdvertisement) {
+            runCatching {
+                onDebugLog("NCM_STARTUP stage=carplay-start-session outboundGate=open " +
+                    "bridgeElapsedMs=${elapsedMillis(startedAtNanos)} preSessionTunnelPacketsDropped=$discarded")
+            }
+            sendUnsolicitedNeighborAdvertisement(force = true)
+        }
     }
 
     private fun runNcmToTun() {
@@ -104,6 +138,18 @@ class Ipv6NcmBridge(
                 }
                 val ipv6 = EthernetIpv6Codec.parseIpv6View(frame) ?: continue
                 peerMac = ipv6.sourceMac
+                if (!seenInboundIpv6) {
+                    seenInboundIpv6 = true
+                    onDebugLog("NCM_STARTUP stage=first-ipv6 bridgeElapsedMs=${elapsedMillis(startedAtNanos)}")
+                }
+                // A plain IPv6/TCP SYN is enough to distinguish arrival from listener delay.
+                val offset = ipv6.payloadOffset
+                if (!seenTcpSyn && ipv6.payloadLength >= 60 && frame[offset + 6].toInt() == 6 &&
+                    frame[offset + 53].toInt() and 0x12 == 0x02) {
+                    seenTcpSyn = true
+                    onDebugLog("NCM_STARTUP stage=first-tcp-syn bridgeElapsedMs=${elapsedMillis(startedAtNanos)} " +
+                        "destinationPort=${frame.u16(offset + 42)}")
+                }
 
                 if (EthernetIpv6Codec.isNeighborSolicitationFor(frame, ipv6.payloadOffset, ipv6.payloadLength, hostLinkLocalBytes)) {
                     val peerIp = frame.copyOfRange(ipv6.payloadOffset + 8, ipv6.payloadOffset + 24)
@@ -175,6 +221,10 @@ class Ipv6NcmBridge(
                     LockSupport.parkNanos(ZERO_READ_BACKOFF_NANOS)
                     continue
                 }
+                if (!startupPacketGate.allowPacket()) {
+                    startupPacketGate.noteDiscardedPacket()
+                    continue
+                }
                 val tunPacket = buffer.copyOf(length)
                 val ipv6 = EthernetIpv6Codec.addNeighborAdvertisementTargetMac(tunPacket, hostMac)
                 if (ipv6.size != tunPacket.size) {
@@ -201,7 +251,20 @@ class Ipv6NcmBridge(
                     runCatching { onDebugLog(outMsg) }
                 }
                 val frame = EthernetIpv6Codec.build(hostMac, mac, ipv6)
-                ncm.send(frame, WRITE_TIMEOUT_MILLIS)
+                var lockWaitMs = 0L
+                var usbTransferMs = 0L
+                val sent = ncm.send(frame, WRITE_TIMEOUT_MILLIS) { lockWaitNs, transferNs ->
+                    lockWaitMs = lockWaitNs / 1_000_000L
+                    usbTransferMs = transferNs / 1_000_000L
+                }
+                if (asyncNeighborAdvertisement && outboundWriteReports.get() > 0 &&
+                    outboundWriteReports.getAndDecrement() > 0
+                ) {
+                    runCatching {
+                        onDebugLog("NCM_STARTUP stage=tun-packet-write result=${if (sent) "sent" else "not-ready"} " +
+                            "bytes=${ipv6.size} lockWaitMs=$lockWaitMs usbTransferMs=$usbTransferMs")
+                    }
+                }
             }
         } catch (error: IOException) {
             if (running.get()) onError(error)
@@ -229,6 +292,15 @@ class Ipv6NcmBridge(
             if (!force && now - lastNaTimeNanos < NA_RETRY_INTERVAL_NANOS) return
             lastNaTimeNanos = now
         }
+        val worker = announcements
+        if (worker == null) transmitAdvertisement(targetMac)
+        else worker.execute { if (running.get()) transmitAdvertisement(targetMac) }
+    }
+
+    private fun transmitAdvertisement(targetMac: ByteArray?) {
+        val started = System.nanoTime()
+        var lockWaitMs = -1L
+        var usbTransferMs = -1L
         try {
             val dstMac = targetMac ?: peerMac ?: allNodesMac
             val frame = EthernetIpv6Codec.buildNeighborAdvertisement(
@@ -238,14 +310,31 @@ class Ipv6NcmBridge(
                 peerIpv6 = allNodesIpv6,
                 solicited = false,
             )
-            ncm.send(frame, WRITE_TIMEOUT_MILLIS)
-            val naMsg = "ncm sent unsolicited neighbor advertisement for $hostLinkLocal"
-            Log.i(TAG, naMsg)
-            runCatching { onDebugLog(naMsg) }
+            // Before StartSession, NCM bulk OUT may NAK until the phone starts its network.
+            // Keep the write lock and the legacy USB bulk transfer short in that phase.
+            val timeout = if (asyncNeighborAdvertisement && peerMac == null) STARTUP_NA_WRITE_TIMEOUT_MILLIS
+                else WRITE_TIMEOUT_MILLIS
+            val sent = ncm.send(frame, timeout) { lockWaitNs, transferNs ->
+                lockWaitMs = lockWaitNs / 1_000_000L
+                usbTransferMs = transferNs / 1_000_000L
+            }
+            if (announcementReports.get() > 0 && announcementReports.getAndDecrement() > 0) {
+                onDebugLog("NCM_STARTUP stage=neighbor-advertisement result=${if (sent) "sent" else "not-ready"} " +
+                    "writeElapsedMs=${elapsedMillis(started)} lockWaitMs=$lockWaitMs usbTransferMs=$usbTransferMs " +
+                    "usbTimeoutMs=$timeout")
+            }
         } catch (error: Exception) {
-            Log.w(TAG, "ncm unsolicited NA send failed: ${error.message}")
+            if (running.get()) {
+                onDebugLog("NCM_STARTUP stage=neighbor-advertisement result=failed " +
+                    "writeElapsedMs=${elapsedMillis(started)} lockWaitMs=$lockWaitMs usbTransferMs=$usbTransferMs " +
+                    "failureClass=${error.javaClass.simpleName}")
+                Log.w(TAG, "ncm unsolicited NA send failed", error)
+            }
         }
     }
+
+    private fun elapsedMillis(startedNanos: Long): Long =
+        (System.nanoTime() - startedNanos).coerceAtLeast(0L) / 1_000_000L
 
     private fun join(thread: Thread) {
         if (thread === Thread.currentThread()) return
@@ -282,6 +371,8 @@ class Ipv6NcmBridge(
         const val TAG = "xcertplay-usb"
         const val READ_TIMEOUT_MILLIS = 1_000L
         const val WRITE_TIMEOUT_MILLIS = 2_000
+        const val STARTUP_NA_WRITE_TIMEOUT_MILLIS = 250
+        const val INITIAL_NA_REPORT_LIMIT = 8
         const val TUN_READ_BYTES = 4_096
         const val ZERO_READ_BACKOFF_NANOS = 1_000_000L
         const val JOIN_TIMEOUT_MILLIS = 2_000L

@@ -13,6 +13,7 @@ import com.shilapi.xcertplay.airplay.AirPlaySocketBinder
 import com.shilapi.xcertplay.airplay.AirPlayTcpAccepted
 import com.shilapi.xcertplay.airplay.isInternalAirPlayPeer
 import com.shilapi.xcertplay.airplay.AirPlayConfig
+import com.shilapi.xcertplay.airplay.AirPlayCrypto
 import com.shilapi.xcertplay.airplay.AirPlayIdentity
 import com.shilapi.xcertplay.airplay.AirPlayMediaHandler
 import com.shilapi.xcertplay.airplay.AirPlaySession
@@ -57,6 +58,8 @@ class CarPlayVpnService : VpnService() {
         val media: AirPlayMediaHandler,
         val additionalAddresses: List<InetAddress> = emptyList(),
         val listenerIdentity: AirPlayListenerIdentity? = null,
+        val onWiredTcpAccepted: ((Long) -> Unit)? = null,
+        val takePreparedPairVerifyKey: (() -> AirPlayCrypto.X25519KeyPair?)? = null,
     )
 
     private val binder = LocalBinder()
@@ -108,6 +111,9 @@ class CarPlayVpnService : VpnService() {
         mfi: MfiAuthenticator?,
         listener: AirPlaySessionListener,
         media: AirPlayMediaHandler,
+        asyncNeighborAdvertisement: Boolean = false,
+        onWiredTcpAccepted: ((Long) -> Unit)? = null,
+        takePreparedPairVerifyKey: (() -> AirPlayCrypto.X25519KeyPair?)? = null,
     ): AttachResult {
         if (active.get()) {
             Log.i(TAG, "replacing stale NCM/VPN attachment")
@@ -198,6 +204,7 @@ class CarPlayVpnService : VpnService() {
                 hostLinkLocal = linkLocal,
                 onDebugLog = { line -> runCatching { listener.onDebugLog(line) } },
                 onError = { error -> onTransportError(generation, listener, error) },
+                asyncNeighborAdvertisement = asyncNeighborAdvertisement,
             )
             attachStage = "NCM IPv6 bridge startup"
             ipv6Bridge.start()
@@ -216,7 +223,8 @@ class CarPlayVpnService : VpnService() {
             val scopedAddress = AirPlaySocketBinder.scopedLinkLocal(address)
             startAirPlayServer(
                 generation,
-                AirPlayAttachment(scopedAddress, config, identity, pairings, mfi, listener, media),
+                AirPlayAttachment(scopedAddress, config, identity, pairings, mfi, listener, media,
+                    onWiredTcpAccepted = onWiredTcpAccepted, takePreparedPairVerifyKey = takePreparedPairVerifyKey),
             )
             runCatching { listener.onDebugLog("wired AirPlay listener bound port=${boundPort()}") }
             boundPort()?.let { port ->
@@ -250,6 +258,7 @@ class CarPlayVpnService : VpnService() {
         media: AirPlayMediaHandler,
         additionalBindAddresses: List<InetAddress> = emptyList(),
         listenerIdentity: AirPlayListenerIdentity? = null,
+        takePreparedPairVerifyKey: (() -> AirPlayCrypto.X25519KeyPair?)? = null,
     ): AttachResult {
         if (active.get()) {
             Log.i(TAG, "replacing stale local-only Wi-Fi attachment")
@@ -261,7 +270,7 @@ class CarPlayVpnService : VpnService() {
             startAirPlayServer(
                 generation,
                 AirPlayAttachment(bindAddress, config, identity, pairings, mfi, listener, media,
-                    additionalBindAddresses, listenerIdentity),
+                    additionalBindAddresses, listenerIdentity, takePreparedPairVerifyKey = takePreparedPairVerifyKey),
             )
             AttachResult.Started
         } catch (error: Exception) {
@@ -298,6 +307,10 @@ class CarPlayVpnService : VpnService() {
 
     fun sendUnsolicitedNeighborAdvertisement(force: Boolean = false) {
         bridge?.sendUnsolicitedNeighborAdvertisement(force)
+    }
+
+    fun onWiredCarPlayStartSessionSent() {
+        bridge?.onCarPlayStartSessionSent()
     }
 
     /** Port the AirPlay listener actually bound, which may differ from the configured port. */
@@ -406,6 +419,7 @@ class CarPlayVpnService : VpnService() {
                             owner, internalPeer, acceptedAtNanos,
                         ))
                     }
+                    if (!internalPeer) runCatching { current.onWiredTcpAccepted?.invoke(acceptedAtNanos) }
                     runCatching { current.listener.onDebugLog(
                         "airplay TCP accepted family=${if (socket.inetAddress is Inet6Address) "IPv6" else "IPv4"}",
                     ) }
@@ -426,6 +440,8 @@ class CarPlayVpnService : VpnService() {
                             }
                         },
                         media = current.media,
+                        tcpAcceptedAtNanos = acceptedAtNanos.takeUnless { internalPeer },
+                        takePreparedPairVerifyKey = current.takePreparedPairVerifyKey.takeUnless { internalPeer },
                     ).also(::addSession)
                 }
                 session.start()

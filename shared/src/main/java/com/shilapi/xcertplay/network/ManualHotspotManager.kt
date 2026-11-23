@@ -70,7 +70,9 @@ class ManualHotspotManager(
         }
     }
 
-    override fun start(timeoutMillis: Long): WirelessHotspotInfo {
+    override fun start(timeoutMillis: Long): WirelessHotspotInfo = start(timeoutMillis, alreadyEnabled = false)
+
+    internal fun start(timeoutMillis: Long, alreadyEnabled: Boolean): WirelessHotspotInfo {
         check(Looper.myLooper() != Looper.getMainLooper()) {
             "ManualHotspotManager.start must not run on the main thread"
         }
@@ -100,6 +102,7 @@ class ManualHotspotManager(
             cancelled = { closed || isCancelled() },
             pause = { millis -> synchronized(waitLock) { if (!closed && !isCancelled()) waitLock.wait(millis) } },
             log = {},
+            fastReadyIfPlatformConfirms = alreadyEnabled,
         ).await(timeoutMillis)
         confirmed = selected
         onDiagnostic("hotspot interface confirmed iface=${selected.name} index=${selected.index} atNs=${System.nanoTime()}")

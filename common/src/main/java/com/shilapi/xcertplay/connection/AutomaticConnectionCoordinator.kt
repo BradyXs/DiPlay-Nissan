@@ -6,21 +6,25 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import com.shilapi.xcertplay.bluetooth.CarPlayBluetoothManager
+import com.shilapi.xcertplay.transport.IphoneUsbHost
 import com.shilapi.xcertplay.transport.IphoneUsbMatcher
+import java.io.Closeable
 import java.util.Locale
 
 /** Coordinates startup transport discovery; the activity remains responsible for launching UI. */
 internal class AutomaticConnectionCoordinator(
     context: Context,
-    private val onConnect: (wireless: Boolean) -> Unit,
+    private val onConnect: (wireless: Boolean, requestedAtNanos: Long) -> Unit,
     private val onBluetoothUnavailable: () -> Unit,
     private val log: (String) -> Unit,
     private val recordBootResult: (String) -> Unit,
+    private val nissanAndroid44Profile: Boolean = false,
     private val handler: Handler = Handler(Looper.getMainLooper()),
 ) {
     private val appContext = context.applicationContext
     private var generation = 0
     private var scanRunnable: Runnable? = null
+    private var usbAttachReceiver: Closeable? = null
     private var bluetoothWaitThread: Thread? = null
     private var bootConnectionInProgress = false
 
@@ -28,9 +32,12 @@ internal class AutomaticConnectionCoordinator(
         cancel()
         bootConnectionInProgress = afterBoot
         val token = generation
+        val requestedAtNanos = SystemClock.elapsedRealtimeNanos()
         val scanStartedAt = SystemClock.elapsedRealtime()
+        val manager = appContext.getSystemService(Context.USB_SERVICE) as? UsbManager
         val scanWindowMillis = if (afterBoot) BOOT_USB_SCAN_WINDOW_MS else APP_USB_SCAN_WINDOW_MS
-        val firstScanDelayMillis = if (afterBoot) BOOT_FIRST_SCAN_DELAY_MS else 0L
+        val firstScanDelayMillis = if (afterBoot && !nissanAndroid44Profile) BOOT_FIRST_SCAN_DELAY_MS else 0L
+        var bluetoothPrewarmStarted = false
         recordBoot(afterBoot, "scanning_usb")
         log(
             "UI_STARTUP stage=auto-connect source=${if (afterBoot) "boot" else "app-open"} " +
@@ -39,8 +46,8 @@ internal class AutomaticConnectionCoordinator(
 
         val scan = object : Runnable {
             override fun run() {
-                if (token != generation) return
-                val manager = appContext.getSystemService(Context.USB_SERVICE) as? UsbManager
+                if (token != generation || scanRunnable !== this) return
+                handler.removeCallbacks(this)
                 val appleDevice = runCatching {
                     manager?.deviceList?.values?.firstOrNull {
                         it.vendorId == IphoneUsbMatcher.APPLE_VENDOR_ID
@@ -48,22 +55,31 @@ internal class AutomaticConnectionCoordinator(
                 }.getOrNull()
 
                 if (appleDevice != null) {
-                    scanRunnable = null
+                    stopUsbScan()
+                    bluetoothWaitThread?.interrupt()
+                    bluetoothWaitThread = null
                     val product = "0x%04x".format(Locale.US, appleDevice.productId)
                     recordBoot(afterBoot, "selected_usb")
                     log("UI_STARTUP stage=auto-connect transport=usb reason=apple-device-attached product=$product")
                     recordBoot(afterBoot, "connecting_usb")
                     bootConnectionInProgress = false
-                    onConnect(false)
+                    onConnect(false, requestedAtNanos)
                     return
                 }
 
-                if (SystemClock.elapsedRealtime() - scanStartedAt < scanWindowMillis) {
-                    handler.postDelayed(this, USB_SCAN_INTERVAL_MS)
+                val scanRemainingMillis = scanWindowMillis - (SystemClock.elapsedRealtime() - scanStartedAt)
+                if (scanRemainingMillis > 0) {
+                    if (!bluetoothPrewarmStarted && nissanAndroid44Profile &&
+                        DiPlayPreferences.autoConnectWireless(appContext) &&
+                        DiPlayPreferences.phoneAddress(appContext) != null) {
+                        bluetoothPrewarmStarted = true
+                        prewarmBluetooth()
+                    }
+                    handler.postDelayed(this, minOf(USB_SCAN_INTERVAL_MS, scanRemainingMillis))
                     return
                 }
 
-                scanRunnable = null
+                stopUsbScan()
                 val wireless = DiPlayPreferences.autoConnectWireless(appContext)
                 val mode = DiPlayPreferences.defaultConnectionMode(appContext)
                 recordBoot(afterBoot, if (wireless) "selected_default_wireless" else "selected_default_usb")
@@ -72,10 +88,18 @@ internal class AutomaticConnectionCoordinator(
                         "reason=default-mode mode=${mode.key} " +
                         "savedIphone=${DiPlayPreferences.phoneAddress(appContext) != null}",
                 )
-                startConnection(wireless, token, afterBoot)
+                startConnection(wireless, token, afterBoot, requestedAtNanos)
             }
         }
         scanRunnable = scan
+        if (nissanAndroid44Profile && manager != null) {
+            // Use the broadcast as a wakeup, and recheck the device list before choosing USB.
+            // Some legacy USB services omit it, so retain the bounded polling window.
+            usbAttachReceiver = runCatching {
+                IphoneUsbHost(appContext, manager, IphoneUsbMatcher.appleVendor())
+                    .registerAttachReceiver { scan.run() }
+            }.getOrNull()
+        }
         handler.postDelayed(scan, firstScanDelayMillis)
     }
 
@@ -83,17 +107,39 @@ internal class AutomaticConnectionCoordinator(
         if (bootConnectionInProgress) recordBootResult("cancelled")
         bootConnectionInProgress = false
         generation++
-        scanRunnable?.let(handler::removeCallbacks)
-        scanRunnable = null
+        stopUsbScan()
         bluetoothWaitThread?.interrupt()
         bluetoothWaitThread = null
     }
 
-    private fun startConnection(wireless: Boolean, token: Int, afterBoot: Boolean) {
-        if (!wireless) {
-            recordBoot(afterBoot, "connecting_usb")
+    private fun stopUsbScan() {
+        scanRunnable?.let(handler::removeCallbacks)
+        scanRunnable = null
+        runCatching { usbAttachReceiver?.close() }
+        usbAttachReceiver = null
+    }
+
+    private fun prewarmBluetooth() {
+        bluetoothWaitThread = Thread({
+            if (Thread.currentThread().isInterrupted) return@Thread
+            val result = runCatching {
+                val adapter = CarPlayBluetoothManager.get(appContext)
+                if (Thread.currentThread().isInterrupted || !adapter.isSupported()) "unavailable"
+                else if (adapter.isEnabled()) "already-ready"
+                else if (Thread.currentThread().isInterrupted) "cancelled"
+                else if (adapter.enable()) "requested"
+                else "rejected"
+            }.getOrDefault("unavailable")
+            log("UI_STARTUP stage=auto-connect-bluetooth-prewarm result=$result")
+        }, "diplay-auto-connect-bluetooth-prewarm").apply { isDaemon = true; start() }
+    }
+
+    private fun startConnection(wireless: Boolean, token: Int, afterBoot: Boolean, requestedAtNanos: Long) {
+        if (!wireless || nissanAndroid44Profile) {
+            // The Nissan controller waits for the radio while preparing the hotspot.
+            recordBoot(afterBoot, if (wireless) "connecting_wireless" else "connecting_usb")
             bootConnectionInProgress = false
-            onConnect(false)
+            onConnect(wireless, requestedAtNanos)
             return
         }
 
@@ -135,7 +181,7 @@ internal class AutomaticConnectionCoordinator(
                 if (enabled) {
                     recordBoot(afterBoot, "connecting_wireless")
                     bootConnectionInProgress = false
-                    onConnect(true)
+                    onConnect(true, requestedAtNanos)
                 } else {
                     recordBoot(afterBoot, "bluetooth_not_ready")
                     bootConnectionInProgress = false

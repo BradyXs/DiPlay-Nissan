@@ -79,6 +79,7 @@ internal object CarPlayMediaKeys {
     private val routeGuidance = CarPlayRouteGuidance()
     private val clusterRouteDisplay = NissanClusterRouteDisplay()
     private var clusterRouteEnd: Runnable? = null
+    private var navigationSequence = 0L
     private var elapsedUpdatedAt = 0L
     private var artwork: Bitmap? = null
     private val artworkCache = LinkedHashMap<Int, Bitmap?>()
@@ -95,7 +96,7 @@ internal object CarPlayMediaKeys {
             reconnectPlaybackHint = null
             reconnectPlaybackHintAtMs = 0L
             releaseLocked()
-            artworkOwner = artworkQueue.newSession()
+            if (Build.VERSION.SDK_INT >= 21) artworkOwner = artworkQueue.newSession()
             AsyncDiagnosticLog.close(diagnosticLog)
             diagnosticLog = if (com.shilapi.xcertplay.host.BuildConfig.NISSAN_ANDROID_44_PROFILE)
                 SessionLogFile(File(File(context.filesDir, "logs"), "diplay.log")) else null
@@ -113,7 +114,9 @@ internal object CarPlayMediaKeys {
         diagnostic("Media keys: attached sdk=${Build.VERSION.SDK_INT}")
         next.playbackListener = { playing -> onIphonePlaying(next, playing) }
         next.nowPlayingListener = { update -> onNowPlayingChanged(next, update) }
-        next.artworkListener = { id, bytes -> onArtworkChanged(next, id, bytes) }
+        next.artworkListener = if (Build.VERSION.SDK_INT >= 21) {
+            { id, bytes -> onArtworkChanged(next, id, bytes) }
+        } else null
         next.navigationFrameListener = { frame -> onNavigationFrame(next, frame) }
     }
 
@@ -199,10 +202,13 @@ internal object CarPlayMediaKeys {
         mainHandler.post {
             synchronized(this) {
                 if (controller !== expected) return@synchronized
-                val update = runCatching { routeGuidance.accept(frame) }
-                    .onFailure { diagnostic("Navigation metadata parse failed class=${it.javaClass.simpleName}") }
-                    .getOrNull() ?: return@synchronized
-                diagnostic("Navigation metadata state active=${update.active} " +
+                val sequence = ++navigationSequence
+                val routeLog = detailedNavigationLog()
+                if (routeLog != null) {
+                    NavigationDiagnostics.received(sequence, frame) { AsyncDiagnosticLog.append(routeLog, it) }
+                }
+                val update = routeGuidance.accept(frame) ?: return@synchronized
+                diagnostic("Navigation metadata state seq=$sequence active=${update.active} " +
                     "sourceKnown=${!update.sourceName.isNullOrBlank()} " +
                     "roadKnown=${!update.currentRoad.isNullOrBlank()} " +
                     "destinationKnown=${!update.destination.isNullOrBlank()} " +
@@ -236,6 +242,23 @@ internal object CarPlayMediaKeys {
         }
     }
 
+    private fun detailedNavigationLog(): SessionLogFile? = diagnosticLog?.takeIf {
+        appContext?.let(AirPlayPersistence::loadDetailedDiagnosticsEnabled) == true
+    }
+
+    private fun navigationResultLogger(title: String, detail: String): ((Int) -> Unit)? {
+        val target = detailedNavigationLog() ?: return null
+        val context = appContext ?: return null
+        val sequence = navigationSequence
+        return { result ->
+            if (AirPlayPersistence.loadDetailedDiagnosticsEnabled(context)) {
+                val prefix = "NAV_CLUSTER seq=$sequence result=$result"
+                AsyncDiagnosticLog.append(target, "$prefix title=${NavigationDiagnostics.quote(title)}")
+                AsyncDiagnosticLog.append(target, "$prefix detail=${NavigationDiagnostics.quote(detail)}")
+            }
+        }
+    }
+
     private fun publishNissanDashboardLocked(route: CarPlayRouteSnapshot) {
         if (!com.shilapi.xcertplay.host.BuildConfig.NISSAN_ANDROID_44_PROFILE) return
         if (route.active) {
@@ -248,6 +271,7 @@ internal object CarPlayMediaKeys {
                 title = lines.title,
                 album = lines.detail,
                 artist = "",
+                onResult = navigationResultLogger(lines.title, lines.detail),
             )
         } else {
             diagnostic("Navigation metadata display mode=media trackTitlePresent=${!nowPlaying.title.isNullOrBlank()} " +

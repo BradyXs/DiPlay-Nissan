@@ -433,6 +433,8 @@ class AndroidMediaSink(
      * decoded. Only a SurfaceView honours the timestamps, so the host sets it with one.
      */
     private val videoPacingDelayMillis: Int = 0,
+    private val allowFirstFrameGrace: Boolean = false,
+    private val onMainVideoPlaybackWindow: ((NissanVideoFrameRate.PlaybackWindow) -> Unit)? = null,
 ) : MediaSink {
     @Volatile private var mediaSuppressedForCall = false
 
@@ -579,6 +581,7 @@ class AndroidMediaSink(
     // Native codec work and waits never run under this lock.
     private val videoOwnershipLock = Any()
     @Volatile private var videoClosed = false
+    @Volatile private var mainVideoFrameReleased = false
     private val videoReleasedListeners = ArrayList<() -> Unit>()
     // Closed decoders whose workers may still hold a codec on a surface until they exit; a surface
     // detach also waits for them.
@@ -1329,8 +1332,16 @@ class AndroidMediaSink(
         videoHeight,
         preferSoftwareHevcDecoder,
         requestKeyFrame = { requestId, reason -> requestVideoRecovery(type, requestId, reason) },
-        report = { videoDiagnosticHandlers[type]?.invoke(it) },
+        report = {
+            if (type == MAIN_SCREEN_TYPE && statsLabel == null && it == "first frame rendered") {
+                mainVideoFrameReleased = true
+            }
+            videoDiagnosticHandlers[type]?.invoke(it)
+        },
         statsLabel = statsLabel,
+        onPlaybackWindow = onMainVideoPlaybackWindow.takeIf { type == MAIN_SCREEN_TYPE && statsLabel == null },
+        allowFirstFrameGrace = allowFirstFrameGrace && type == MAIN_SCREEN_TYPE &&
+            statsLabel == null && !mainVideoFrameReleased,
         onExit = ::onVideoDecoderExit,
         // Only the main screen goes to the host's SurfaceView; auxiliary streams remain isolated.
         pacingDelayNanos = if (type == MAIN_SCREEN_TYPE && statsLabel == null) videoPacingDelayMillis * 1_000_000L else 0L,
@@ -1448,6 +1459,8 @@ private class VideoDecoder(
     private val report: (String) -> Unit,
     statsLabel: String? = null,
     pacingDelayNanos: Long = 0L,
+    allowFirstFrameGrace: Boolean = false,
+    onPlaybackWindow: ((NissanVideoFrameRate.PlaybackWindow) -> Unit)? = null,
     /** Called on the worker as its last step, after it has released its codec. */
     private val onExit: (VideoDecoder) -> Unit = {},
 ) : Closeable {
@@ -1476,6 +1489,8 @@ private class VideoDecoder(
     private var inputWithoutOutputSinceNs = 0L
     private var outputStallRebuildUsed = false
     private val queue = VideoDecodeQueue()
+    private val firstFrameGrace = VideoFirstFrameGrace(allowFirstFrameGrace)
+    private var firstFrameGraceLogged = false
     @Volatile private var running = true
     @Volatile private var decoder: MediaCodec? = null
     private var outputSurface: Surface? = surface
@@ -1494,7 +1509,10 @@ private class VideoDecoder(
     private var pendingKeyFrameRequestId = 0L
     private var pendingKeyFrameRequestAtNs = 0L
     // The main screen keeps the historical log format; other screens are labelled.
-    private val stats = VideoStats(statsLabel ?: if (streamType == MAIN_SCREEN_TYPE) "" else " stream=$streamType")
+    private val stats = VideoStats(
+        statsLabel ?: if (streamType == MAIN_SCREEN_TYPE) "" else " stream=$streamType",
+        onPlaybackWindow = onPlaybackWindow,
+    )
     private val thread = Thread(::run, "carplay-video").apply { isDaemon = true }
 
     init {
@@ -1575,26 +1593,35 @@ private class VideoDecoder(
                             val isRandomAccess = lastConfig?.let {
                                 MediaCodecSupport.isRandomAccess(job.nalus, it.codec)
                             } ?: false
-                            if (frameAgeNs > MAX_FRAME_AGE_NS && !job.recoveryAnchor && !isRandomAccess) {
+                            val ageLimitNs = firstFrameGrace.frameAgeLimitNanos(nowNs)
+                            if (frameAgeNs > ageLimitNs && !job.recoveryAnchor && !isRandomAccess) {
+                                val ageLimitMs = ageLimitNs / 1_000_000
                                 val prune = lastConfig?.let { queue.retainLatestRandomAccess(it.codec) }
                                 if (prune?.anchorQueued == true) {
                                     referenceChain.reset()
                                     stats.onRecovery()
                                     recoveryAnchorPending = true
-                                    report("recovery: video backlog exceeded 250 ms " +
+                                    report("recovery: video backlog exceeded $ageLimitMs ms " +
                                         "ageMs=${frameAgeNs / 1_000_000} queueMs=${queueAgeNs / 1_000_000} " +
                                         "action=retain_latest_idr droppedFrames=${prune.droppedFrames} " +
                                         "retainedFrames=${prune.retainedFrames}")
                                 } else {
                                     recoveryAnchorPending = false
-                                    queue.discardFrames()
-                                    recover("video backlog exceeded 250 ms " +
+                                    if (prune == null) queue.discardFrames()
+                                    recover("video backlog exceeded $ageLimitMs ms " +
                                         "ageMs=${frameAgeNs / 1_000_000} queueMs=${queueAgeNs / 1_000_000}",
                                         allowRebuild = false,
                                     )
                                 }
                             } else {
                                 if (job.recoveryAnchor) recoveryAnchorPending = false
+                                if (!firstFrameGraceLogged && !referenceChain.needsKeyFrame &&
+                                    !job.recoveryAnchor && !isRandomAccess &&
+                                    frameAgeNs > VideoFirstFrameGrace.NORMAL_FRAME_AGE_NS) {
+                                    firstFrameGraceLogged = true
+                                    report("startup_frame_grace stream=$streamType ageMs=${frameAgeNs / 1_000_000} " +
+                                        "windowLimitMs=${ageLimitNs / 1_000_000}")
+                                }
                                 feed(job.nalus, localTimeOf(job), frameArrivalNs)
                             }
                         }
@@ -1611,7 +1638,7 @@ private class VideoDecoder(
                         null -> Unit
                     }
                     decoder?.let(::drainOutput)
-                    stats.logIfDue()?.let(report)
+                    stats.logIfDue(outputSurface != null && outputSurface !== parking?.surface)?.let(report)
                     if (referenceChain.needsKeyFrame && !recoveryAnchorPending && lastConfig != null && outputSurface != null) {
                         requestKeyFrameIfDue("reference_chain_missing_idr")
                     }
@@ -1656,6 +1683,7 @@ private class VideoDecoder(
         releaseDecoder()
         referenceChain.reset()
         val surface = outputSurface ?: return
+        val configureStartedAtNanos = System.nanoTime()
         val codec = config.codec
         val codecData = config.codecData
         val mime = if (codec == VideoCodec.H265) MediaFormat.MIMETYPE_VIDEO_HEVC
@@ -1688,6 +1716,7 @@ private class VideoDecoder(
         renderedFrameLogged = false
         submittedFrameLogged = false
         if (next != null) {
+            firstFrameGrace.onCodecConfigured(configureStartedAtNanos)
             report("decoder=${next.name} mime=$mime size=${width}x$height")
             Log.i(
                 TAG,
@@ -2071,6 +2100,7 @@ private class VideoDecoder(
                     }
                     if (shown && !renderedFrameLogged) {
                         renderedFrameLogged = true
+                        firstFrameGrace.onFirstFrameReleased()
                         report("first frame rendered")
                         Log.i(TAG, "video decoder rendered first frame bytes=${info.size}")
                     }
@@ -2132,7 +2162,6 @@ private class VideoDecoder(
         val nextKeyFrameRequestId = AtomicLong()
         const val MAX_INPUT_SIZE = 8 * 1024 * 1024
         const val INPUT_TIMEOUT_US = 10_000L
-        const val MAX_FRAME_AGE_NS = 250_000_000L
         const val OUTPUT_STALL_MIN_FRAMES = 30
         const val OUTPUT_STALL_NS = 1_500_000_000L
         const val OUTPUT_STALL_SURFACE_GRACE_NS = 3_500_000_000L

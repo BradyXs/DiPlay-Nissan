@@ -224,21 +224,21 @@ class Iap2CsmChannel private constructor(
         /** Opens the owned iAP2 link over an owned carkit stream. */
         fun open(
             underlying: BlockingDuplexByteStream,
-            onArtwork: (Iap2ArtworkTransfer) -> Unit = {},
+            onArtwork: ((Iap2ArtworkTransfer) -> Unit)? = {},
         ): Iap2CsmChannel =
             Iap2CsmChannel(Iap2LinkChannel.open(underlying, onArtwork))
 
         /** Opens the owned iAP2 link over an owned wireless RFCOMM stream. */
         fun openWireless(
             underlying: BlockingDuplexByteStream,
-            onArtwork: (Iap2ArtworkTransfer) -> Unit = {},
+            onArtwork: ((Iap2ArtworkTransfer) -> Unit)? = {},
         ): Iap2CsmChannel =
             Iap2CsmChannel(Iap2LinkChannel.openWireless(underlying, onArtwork))
 
         /** Opens the owned iAP2 link over an AirPlay type-130 tunnel. */
         fun openTunnel(
             underlying: BlockingDuplexByteStream,
-            onArtwork: (Iap2ArtworkTransfer) -> Unit = {},
+            onArtwork: ((Iap2ArtworkTransfer) -> Unit)? = {},
         ): Iap2CsmChannel =
             Iap2CsmChannel(Iap2LinkChannel.openTunnel(underlying, onArtwork))
     }

@@ -78,6 +78,8 @@ internal const val SETTINGS_FROM_CARPLAY_EXTRA = "com.shilapi.xcertplay.extra.SE
 internal const val SETTINGS_CATEGORY_EXTRA = "com.shilapi.xcertplay.extra.SETTINGS_CATEGORY"
 internal const val OPEN_SAFE_AREA_EDITOR_EXTRA = "com.shilapi.xcertplay.extra.OPEN_SAFE_AREA_EDITOR"
 internal const val RESTORE_PROJECTION_EXTRA = "com.shilapi.xcertplay.extra.RESTORE_PROJECTION"
+internal const val AUTOMATIC_CONNECTION_EXTRA = "com.shilapi.xcertplay.extra.AUTOMATIC_CONNECTION"
+internal const val CONNECTION_REQUESTED_AT_EXTRA = "com.shilapi.xcertplay.extra.CONNECTION_REQUESTED_AT"
 
 /** DiAuto's visual language, with a connection flow for an independent CarPlay receiver. */
 class DiPlayActivity : ComponentActivity() {
@@ -85,12 +87,15 @@ class DiPlayActivity : ComponentActivity() {
     private val automaticConnection by lazy(LazyThreadSafetyMode.NONE) {
         AutomaticConnectionCoordinator(
             context = applicationContext,
-            onConnect = { wireless -> connect(wireless, automaticLaunch = true) },
+            onConnect = { wireless, startedAt ->
+                connect(wireless, automaticLaunch = true, requestedAtNanos = startedAt)
+            },
             onBluetoothUnavailable = {
                 Toast.makeText(this, R.string.bluetooth_adapter_unavailable, Toast.LENGTH_LONG).show()
             },
             log = { UiPageDiagnostics.log(it) },
             recordBootResult = { StartupDiagnosticSnapshot.autoConnectResult(applicationContext, it) },
+            nissanAndroid44Profile = nissanAndroid44Profile,
         )
     }
     private val connectionSettingsRepository by lazy(LazyThreadSafetyMode.NONE) {
@@ -117,7 +122,7 @@ class DiPlayActivity : ComponentActivity() {
     private val pendingNissanConnectAction: () -> Unit = {
         val pending = connectionLaunchCoordinator.takeNissanDefaultsLaunch()
         if (pending != null && !isFinishing && !isDestroyed) {
-            connect(wireless = pending.wireless, automaticLaunch = pending.automaticLaunch)
+            connect(pending.wireless, pending.automaticLaunch, pending.requestedAtNanos)
         }
     }
     private var page = "home"
@@ -533,6 +538,9 @@ class DiPlayActivity : ComponentActivity() {
                 page == "home" && intent.getStringExtra("page") == null &&
                 (autoConnectAfterBootRequested || DiPlayPreferences.autoConnect(this))
             if (shouldAutoConnect) {
+                if (nissanAndroid44Profile) {
+                    DiPlayBootstrap.prewarmLocalIdentity(this, AirPlayPersistence.loadMfiTarget(this))
+                }
                 val fromBoot = autoConnectAfterBootRequested
                 autoConnectAfterBootRequested = false
                 if (fromBoot) automaticConnection.start(afterBoot = true)
@@ -1337,7 +1345,21 @@ class DiPlayActivity : ComponentActivity() {
                 { AirPlayPersistence.loadDisplayScalePercent(this) }, reconnects = true,
                 save = { AirPlayPersistence.saveDisplayScalePercent(this, it) },
             )
-            choice(card, getString(R.string.frame_rate), listOf(getString(R.string.s_30_fps_lighter_load), getString(R.string.s_60_fps_smoother_motion)), if (AirPlayPersistence.loadFps(this) == 60) 1 else 0) { AirPlayPersistence.saveFps(this, if (it == 1) 60 else 30) }
+            val frameRates = if (nissanAndroid44Profile) listOf(30, 60, AirPlayPersistence.ADAPTIVE_FPS) else listOf(30, 60)
+            val frameRateLabels = frameRates.map {
+                getString(when (it) {
+                    AirPlayPersistence.ADAPTIVE_FPS -> R.string.settings_adaptive_frame_rate
+                    60 -> R.string.s_60_fps_smoother_motion
+                    else -> R.string.s_30_fps_lighter_load
+                })
+            }
+            choice(card, getString(R.string.frame_rate), frameRateLabels,
+                frameRates.indexOf(AirPlayPersistence.loadFpsMode(this)).coerceAtLeast(0),
+                reconnects = !nissanAndroid44Profile,
+            ) {
+                AirPlayPersistence.saveFps(this, frameRates[it])
+                if (nissanAndroid44Profile) markReconnectNeeded()
+            }
             addSystemBarControls(
                 hideTopBar = AirPlayPersistence.loadHideTopBar(this),
                 hideBottomBar = AirPlayPersistence.loadHideBottomBar(this),
@@ -2308,7 +2330,11 @@ class DiPlayActivity : ComponentActivity() {
         parent.addView(space(12))
     }
 
-    private fun connect(wireless: Boolean, automaticLaunch: Boolean = false) {
+    private fun connect(
+        wireless: Boolean,
+        automaticLaunch: Boolean = false,
+        requestedAtNanos: Long = SystemClock.elapsedRealtimeNanos(),
+    ) {
         if (!automaticLaunch) automaticConnection.cancel()
         val preferences = getSharedPreferences("diplay", MODE_PRIVATE)
         val nissanDefaultsSatisfied = !nissanAndroid44Profile || nissanDefaultsReady
@@ -2330,7 +2356,7 @@ class DiPlayActivity : ComponentActivity() {
                 checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED &&
                 !preferences.getBoolean("notification_asked", false),
             sessionAlreadyRunning = CarPlayBackgroundSession.hasSession(),
-        ))
+        ), requestedAtNanos)
         when (decision) {
             is ConnectionLaunchPolicy.Decision.WaitForNissanDefaults -> {
                 if (afterNissanDefaults.none { it === pendingNissanConnectAction }) {
@@ -2358,14 +2384,17 @@ class DiPlayActivity : ComponentActivity() {
             is ConnectionLaunchPolicy.Decision.Launch -> {
                 val open = {
                     AirPlayPersistence.saveWirelessEnabled(this, decision.wireless)
-                    openProjection()
+                    if (nissanAndroid44Profile) {
+                        DiPlayBootstrap.prewarmLocalIdentity(this, AirPlayPersistence.loadMfiTarget(this))
+                    }
+                    openProjection(automaticLaunch, requestedAtNanos)
                 }
                 if (decision.replaceSession) CarPlayBackgroundSession.stop { runOnUiThread { open() } }
                 else open()
             }
         }
     }
-    private fun openProjection() {
+    private fun openProjection(automaticLaunch: Boolean = false, requestedAtNanos: Long = 0L) {
         val restoreRenderedProjection = CarPlayBackgroundSession.hasSession() &&
             CarPlayBackgroundSession.active && CarPlayBackgroundSession.hasRenderedVideoFrame
         UiPageDiagnostics.log(
@@ -2375,6 +2404,8 @@ class DiPlayActivity : ComponentActivity() {
         )
         startActivity(Intent(this, CarPlayHostActivity::class.java)
             .putExtra(RESTORE_PROJECTION_EXTRA, restoreRenderedProjection)
+            .putExtra(AUTOMATIC_CONNECTION_EXTRA, automaticLaunch)
+            .putExtra(CONNECTION_REQUESTED_AT_EXTRA, requestedAtNanos)
             .addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or Intent.FLAG_ACTIVITY_NO_ANIMATION))
     }
     private val bluetoothExecutor = java.util.concurrent.Executors.newSingleThreadExecutor()

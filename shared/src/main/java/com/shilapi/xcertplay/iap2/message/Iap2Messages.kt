@@ -275,10 +275,11 @@ object Iap2ControlMessages {
         optionalVoid(5, maxNonSiphoningCurrentExceeded)
     }
 
-    fun subscriptions(): List<Iap2Frame> = listOf(
+    fun subscriptions(includeArtwork: Boolean = true): List<Iap2Frame> = listOf(
         Iap2Messages.build(Iap2Endpoints.START_NOW_PLAYING_UPDATES) {
             group(0) {
-                listOf(1, 4, 6, 12, 26).forEach(::void)
+                listOf(1, 4, 6, 12).forEach(::void)
+                if (includeArtwork) void(26)
             }
             group(1) {
                 listOf(0, 1, 7).forEach(::void)

@@ -21,6 +21,9 @@ class LocalMfiAuthenticationClient private constructor(
     private val certificate: ByteArray,
     private val onSignature: (Int) -> Unit,
 ) : MfiAuthenticator {
+    fun withSignatureListener(listener: (Int) -> Unit): LocalMfiAuthenticationClient =
+        LocalMfiAuthenticationClient(privateKey, certificate, listener)
+
     override fun protocolMajor(): Int = 3
 
     override fun readCertificate(maximumOutputLength: Int): ByteArray {

@@ -20,6 +20,7 @@ import kotlin.math.min
 class Iap2WirelessControlClient(
     private val session: Iap2Session,
     private val mfi: Iap2MfiAuthenticationClient,
+    private val includeArtwork: Boolean = true,
 ) {
     fun run(
         identification: Iap2IdentificationConfig,
@@ -30,6 +31,8 @@ class Iap2WirelessControlClient(
         onReady: () -> Unit = {},
         beforeStartSession: () -> Unit = {},
         onStartSessionSent: (Iap2StartSessionSent) -> Unit = {},
+        startOnWirelessAvailability: Boolean = false,
+        airPlayConnectionPending: () -> Boolean = { false },
         onIncoming: (Iap2Frame) -> Unit = {},
         // Evaluated only in the authenticated control loop when its original deadline expires.
         // The caller must prove that the current CarPlay session is usable before keeping it alive.
@@ -56,7 +59,7 @@ class Iap2WirelessControlClient(
         stage = Iap2WirelessControlStage.AUTHENTICATED
         onProgress("iap2 authentication accepted")
 
-        for (subscription in Iap2WiredControlClient.subscriptions()) {
+        for (subscription in Iap2WiredControlClient.subscriptions(includeArtwork)) {
             session.send(subscription, deadline.requireRemaining())
         }
         stage = Iap2WirelessControlStage.SUBSCRIBED
@@ -74,6 +77,7 @@ class Iap2WirelessControlClient(
         var postTransportWiFiConfigurationsSent = 0
         var transportNotificationSeen = false
         var wirelessCarPlayAvailableSeen = false
+        val startSessionPolicy = WirelessStartSessionPolicy(startOnWirelessAvailability)
         val location = Iap2LocationReporter(locationProvider, onProgress)
         val vehicleStatus = Iap2VehicleStatusReporter(vehicleStatusProvider, onProgress)
         try {
@@ -180,17 +184,29 @@ class Iap2WirelessControlClient(
                     CARPLAY_AVAILABILITY -> {
                         onProgress("iap2 rx=0x4300 carplay-availability")
                         onProgress(carPlayAvailabilityDiagnostic(incoming))
-                        beforeStartSession()
-                        sendStartSession(endpoint, ::sendControl, onStartSessionSent)
-                        stage = later(stage, Iap2WirelessControlStage.CARPLAY_START_SENT)
-                        carPlayStartSessionsSent++
-                        onProgress("iap2 tx=0x4301 carplay-start-session")
+                        val trigger = startSessionPolicy.onCarPlayAvailability(airPlayConnectionPending())
+                        if (trigger != null) {
+                            beforeStartSession()
+                            sendStartSession(endpoint, ::sendControl, onStartSessionSent)
+                            stage = later(stage, Iap2WirelessControlStage.CARPLAY_START_SENT)
+                            carPlayStartSessionsSent++
+                            onProgress("iap2 tx=0x4301 carplay-start-session trigger=availability")
+                        } else {
+                            onProgress("iap2 0x4301 skipped: AirPlay TCP already accepted")
+                        }
                     }
 
                     WIRELESS_CARPLAY_UPDATE -> {
                         val available = Iap2WirelessMessages.wirelessCarPlayAvailability(incoming)
                         if (available) wirelessCarPlayAvailableSeen = true
                         onProgress("iap2 rx=0x4e0d wireless-carplay-update available=$available")
+                        if (startSessionPolicy.onWirelessAvailability(available) != null) {
+                            beforeStartSession()
+                            sendStartSession(endpoint, ::sendControl, onStartSessionSent)
+                            stage = later(stage, Iap2WirelessControlStage.CARPLAY_START_SENT)
+                            carPlayStartSessionsSent++
+                            onProgress("iap2 tx=0x4301 carplay-start-session trigger=wireless-availability")
+                        }
                     }
 
                     DEVICE_TRANSPORT_IDENTIFIER_NOTIFICATION -> {

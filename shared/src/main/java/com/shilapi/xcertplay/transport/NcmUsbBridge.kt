@@ -75,8 +75,25 @@ class NcmUsbBridge internal constructor(
         }
     }
 
-    /** Wraps one Ethernet frame in one NTB16 block and writes it to bulk OUT. */
-    fun send(frame: ByteArray, timeoutMillis: Int) = synchronized(writeLock) {
+    /** Writes one NTB16 block. Returns false when bulk OUT accepts no bytes. */
+    fun send(
+        frame: ByteArray,
+        timeoutMillis: Int,
+        onWriteTiming: ((lockWaitNanos: Long, transferNanos: Long) -> Unit)? = null,
+    ): Boolean {
+        val waitingAt = if (onWriteTiming != null) System.nanoTime() else 0L
+        return synchronized(writeLock) {
+            val acquiredAt = if (onWriteTiming != null) System.nanoTime() else 0L
+            sendLocked(frame, timeoutMillis, onWriteTiming, acquiredAt - waitingAt)
+        }
+    }
+
+    private fun sendLocked(
+        frame: ByteArray,
+        timeoutMillis: Int,
+        onWriteTiming: ((Long, Long) -> Unit)?,
+        lockWaitNanos: Long,
+    ): Boolean {
         checkOpen()
         require(timeoutMillis > 0) { "timeoutMillis must be positive" }
         val sequence = synchronized(stateLock) {
@@ -84,8 +101,13 @@ class NcmUsbBridge internal constructor(
             this.sequence.also { this.sequence = (this.sequence + 1) and 0xffff }
         }
         val block = Ntb16Codec.build(frame, sequence)
-        val transferred = writeUsbChunks(block.size, realSdkInt(), timeoutMillis) { offset, count, timeout ->
-            connection.bulkTransfer(outEndpoint, block, offset, count, timeout)
+        val transferStarted = if (onWriteTiming != null) System.nanoTime() else 0L
+        val transferred = try {
+            writeUsbChunks(block.size, realSdkInt(), timeoutMillis) { offset, count, timeout ->
+                connection.bulkTransfer(outEndpoint, block, offset, count, timeout)
+            }
+        } finally {
+            onWriteTiming?.invoke(lockWaitNanos, System.nanoTime() - transferStarted)
         }
         // Before StartCarPlaySession the phone keeps the NCM data path NAKed. Android reports the
         // resulting timeout as -1; it is not a detach and later packets must be allowed to retry.
@@ -95,7 +117,7 @@ class NcmUsbBridge internal constructor(
                     loggedWriteTimeout = true
                     Log.i(IphoneCarPlayConfiguration.TAG, "ncm bulk-out not ready; retaining bridge for retry")
                 }
-                return@synchronized
+                return false
             }
             // The phone only sends once its data path is up, so from here a run of failures means bulk
             // OUT alone is gone: inbound video keeps arriving while touch, return audio and TCP ACKs
@@ -116,7 +138,7 @@ class NcmUsbBridge internal constructor(
                     "NCM write failed $consecutiveWriteFailures times while the data path was live",
                 )
             }
-            return@synchronized
+            return false
         }
         if (transferred != block.size) {
             // The phone holds a truncated NTB16 block, so this frame stream cannot be resumed in
@@ -128,6 +150,7 @@ class NcmUsbBridge internal constructor(
             loggedWriteTimeout = false
             Log.i(IphoneCarPlayConfiguration.TAG, "ncm bulk-out became ready")
         }
+        return true
     }
 
     /**

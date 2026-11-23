@@ -87,6 +87,7 @@ import com.shilapi.xcertplay.airplay.SafeAreaRect
 import com.shilapi.xcertplay.host.R
 import com.shilapi.xcertplay.location.AndroidCarPlayLocationProvider
 import com.shilapi.xcertplay.media.AndroidMediaSink
+import com.shilapi.xcertplay.media.NissanVideoFrameRate
 import com.shilapi.xcertplay.media.CarPlayTouchMapper
 import com.shilapi.xcertplay.media.CarPlayVideoLayout
 import com.shilapi.xcertplay.network.CarPlayVpnService
@@ -380,6 +381,8 @@ class CarPlayHostActivity : ComponentActivity() {
     private var uiPageProbe: UiPageDrawProbe? = null
     private var uiActivityResumed = false
     private var activityCreateStartedAtNs = 0L
+    private data class ConnectionStart(val atNanos: Long, val source: String)
+    private var pendingConnectionStart: ConnectionStart? = null
     private var gestureFingerCount = 3
     private var settingsGestureHint: TextView? = null
     private var gestureSequenceActive = false
@@ -499,6 +502,15 @@ class CarPlayHostActivity : ComponentActivity() {
         pendingSafeAreaEditor = intent.getBooleanExtra(OPEN_SAFE_AREA_EDITOR_EXTRA, false)
         intent.removeExtra(OPEN_SAFE_AREA_EDITOR_EXTRA)
         activityCreateStartedAtNs = SystemClock.elapsedRealtimeNanos()
+        if (savedInstanceState?.getInt("connectionTimingPid", -1) == Process.myPid()) {
+            val start = savedInstanceState.getLong(CONNECTION_REQUESTED_AT_EXTRA, 0L)
+            val source = savedInstanceState.getString("connectionTimingSource")
+            if (start in 1..activityCreateStartedAtNs && source != null) {
+                pendingConnectionStart = ConnectionStart(start, source)
+            }
+        } else {
+            captureConnectionStart(intent, activityCreateStartedAtNs)
+        }
         UiPageDiagnostics.initialize(applicationContext)
         UiPageDiagnostics.activityEvent("create", javaClass.simpleName, "carplay-host")
         uiPageProbe = UiPageDiagnostics.beginPage(
@@ -809,6 +821,7 @@ class CarPlayHostActivity : ComponentActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        captureConnectionStart(intent, SystemClock.elapsedRealtimeNanos(), switchingToUsb = wirelessEnabled)
         setIntent(intent)
         if (beginProjectionRestore()) {
             updateDebugOverlays()
@@ -831,6 +844,24 @@ class CarPlayHostActivity : ComponentActivity() {
             } else if (controller == null) {
                 requestStartupPrerequisites()
             }
+        }
+    }
+
+    private fun captureConnectionStart(request: Intent, atNanos: Long, switchingToUsb: Boolean = false) {
+        if (isIphoneUsbAttachment(request)) {
+            if (switchingToUsb) {
+                pendingConnectionStart = ConnectionStart(atNanos, "usb-switch")
+            } else if (pendingConnectionStart == null && !CarPlayBackgroundSession.active) {
+                pendingConnectionStart = ConnectionStart(atNanos, "usb-attach")
+            }
+            // Re-enumeration can deliver a second USB intent before the first frame.
+            return
+        }
+        val requestedAt = request.getLongExtra(CONNECTION_REQUESTED_AT_EXTRA, 0L)
+        if (requestedAt in 1..atNanos) {
+            val source = if (request.getBooleanExtra(AUTOMATIC_CONNECTION_EXTRA, false)) "automatic" else "manual"
+            pendingConnectionStart = ConnectionStart(requestedAt, source)
+            request.removeExtra(CONNECTION_REQUESTED_AT_EXTRA)
         }
     }
 
@@ -1021,7 +1052,23 @@ class CarPlayHostActivity : ComponentActivity() {
 
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putBoolean("carplay_night_active", darkMode)
+        outState.putInt("connectionTimingPid", Process.myPid())
+        pendingConnectionStart?.let {
+            outState.putLong(CONNECTION_REQUESTED_AT_EXTRA, it.atNanos)
+            outState.putString("connectionTimingSource", it.source)
+        }
         super.onSaveInstanceState(outState)
+    }
+
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        if (level == android.content.ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN) return
+        appendLog("memory pressure callback level=$level sessionActive=${CarPlayBackgroundSession.active}")
+    }
+
+    override fun onLowMemory() {
+        super.onLowMemory()
+        appendLog("memory pressure callback lowMemory=true sessionActive=${CarPlayBackgroundSession.active}")
     }
 
     override fun onPause() {
@@ -1796,6 +1843,8 @@ class CarPlayHostActivity : ComponentActivity() {
     private fun createMediaSink(
         videoWidth: Int,
         videoHeight: Int,
+        videoFps: Int,
+        frameRateSession: NissanVideoFrameRate.Session?,
         controllerGeneration: Int,
     ): AndroidMediaSink {
         // Capture this session's log: late decoder shutdown must not write into a new session.
@@ -1858,7 +1907,20 @@ class CarPlayHostActivity : ComponentActivity() {
             preferNativeOpusDecoder = com.shilapi.xcertplay.host.BuildConfig.NISSAN_ANDROID_44_PROFILE,
             pauseVideoWhenSurfaceAbsent = com.shilapi.xcertplay.host.BuildConfig.NISSAN_ANDROID_44_PROFILE,
             // Only a SurfaceView honours release timestamps; smooth video always selects one.
-            videoPacingDelayMillis = if (smoothVideo) smoothVideoDelayMillis(fps) else 0,
+            videoPacingDelayMillis = if (smoothVideo) smoothVideoDelayMillis(videoFps) else 0,
+            onMainVideoPlaybackWindow = frameRateSession?.let { rate ->
+                { window ->
+                    val nextFps = rate.observe(window)
+                    if (nextFps != null) {
+                        AsyncDiagnosticLog.append(diagnosticLog,
+                            "VIDEO_FPS adaptive current=${rate.fps} next=$nextFps " +
+                                "rx=${window.inputFps.toInt()} queueP90Ms=${window.queueP90Millis} " +
+                                "decodePercent=${(window.decodedFraction * 100).toInt()} " +
+                                "shownPercent=${(window.shownFraction * 100).toInt()}")
+                    }
+                }
+            },
+            allowFirstFrameGrace = com.shilapi.xcertplay.host.BuildConfig.NISSAN_ANDROID_44_PROFILE && wirelessEnabled,
         )
     }
 
@@ -1893,6 +1955,7 @@ class CarPlayHostActivity : ComponentActivity() {
             }
 
             override fun onVideoFrameRendered(session: AirPlaySession) {
+                val releasedAtNanos = SystemClock.elapsedRealtimeNanos()
                 runOnUiThread {
                     if (controllerGeneration != restartGeneration || activeAirPlaySession !== session || shuttingDown.get()) return@runOnUiThread
                     CarPlayBackgroundSession.markVideoFrameRendered()
@@ -1904,12 +1967,17 @@ class CarPlayHostActivity : ComponentActivity() {
                     uiPageProbe?.onVideoFrameReleased()
                     if (!startupRetryBudget.firstFrame(session, android.os.SystemClock.elapsedRealtime())) return@runOnUiThread
                     val hostElapsedMs = if (activityCreateStartedAtNs > 0L) {
-                        (SystemClock.elapsedRealtimeNanos() - activityCreateStartedAtNs).coerceAtLeast(0L) / 1_000_000L
+                        (releasedAtNanos - activityCreateStartedAtNs).coerceAtLeast(0L) / 1_000_000L
                     } else {
                         -1L
                     }
-                    appendLog("First CarPlay frame rendered hostCreateToFrameMs=$hostElapsedMs")
-                    UiPageDiagnostics.log("UI_VIDEO first_frame hostCreateToFrameMs=$hostElapsedMs")
+                    val requestTiming = pendingConnectionStart?.let {
+                        pendingConnectionStart = null
+                        val elapsedMs = (releasedAtNanos - it.atNanos).coerceAtLeast(0L) / 1_000_000L
+                        " requestToFrameMs=$elapsedMs source=${it.source}"
+                    }.orEmpty()
+                    appendLog("First CarPlay frame rendered hostCreateToFrameMs=$hostElapsedMs$requestTiming")
+                    UiPageDiagnostics.log("UI_VIDEO first_frame hostCreateToFrameMs=$hostElapsedMs$requestTiming")
                     mainHandler.postDelayed({
                         if (controllerGeneration == restartGeneration && activeAirPlaySession === session &&
                             !shuttingDown.get() && CarPlayBackgroundSession.isOwner(this@CarPlayHostActivity) &&
@@ -2001,7 +2069,8 @@ class CarPlayHostActivity : ComponentActivity() {
                 if (videoPipelineDiagnostic &&
                     (detailedDiagnosticsEnabled ||
                         message.contains("input_stall") || message.contains("surface_first_release") ||
-                        message.contains("keyframe_") || message.contains("recovery:"))) {
+                        message.contains("keyframe_") || message.contains("recovery:") ||
+                        message.contains("startup_frame_grace"))) {
                     // Keep timing evidence in the exported session log even when the settings menu hides UI logs.
                     AsyncDiagnosticLog.append(diagnosticLog, message)
                 }
@@ -2014,9 +2083,7 @@ class CarPlayHostActivity : ComponentActivity() {
                         return@runOnUiThread
                     }
                     DisplayDiagnosticSnapshot.record(this@CarPlayHostActivity, displayDiagnosticAttempt, message)
-                    if (message.startsWith(PROTOCOL_TRACE_PREFIX)) {
-                        appendFileLog(message)
-                    } else if (!videoPipelineDiagnostic) {
+                    if (!videoPipelineDiagnostic) {
                         appendLog(message)
                     }
                 }
@@ -2146,7 +2213,18 @@ class CarPlayHostActivity : ComponentActivity() {
         }
         val configStartedAtNs = SystemClock.elapsedRealtimeNanos()
         val effectiveSize = size
-        val airPlayConfig = createAirPlayConfig(effectiveSize)
+        val initialAirPlayConfig = createAirPlayConfig(effectiveSize)
+        val main = initialAirPlayConfig.main
+        val frameRateSession = if (AirPlayPersistence.loadFpsMode(this) == AirPlayPersistence.ADAPTIVE_FPS) {
+            adaptiveFrameRate.begin(NissanVideoFrameRate.Profile(
+                wirelessEnabled, main.widthPixels, main.heightPixels, initialAirPlayConfig.hevc,
+                initialAirPlayConfig.hevc && hevcSoftwareDecoderEnabled,
+            ))
+        } else null
+        val airPlayConfig = if (frameRateSession != null) {
+            appendLog("VIDEO_FPS adaptive sessionCeiling=${frameRateSession.fps} transport=${config.transport}")
+            initialAirPlayConfig.copy(main = main.copy(fps = frameRateSession.fps))
+        } else initialAirPlayConfig
         UiPageDiagnostics.log(
             "UI_STARTUP stage=carplay-config-total " +
                 "elapsedMs=${(SystemClock.elapsedRealtimeNanos() - configStartedAtNs) / 1_000_000L} thread=main",
@@ -2179,6 +2257,8 @@ class CarPlayHostActivity : ComponentActivity() {
         val renderer = createMediaSink(
             videoWidth = airPlayConfig.main.widthPixels,
             videoHeight = airPlayConfig.main.heightPixels,
+            videoFps = airPlayConfig.main.fps,
+            frameRateSession = frameRateSession,
             controllerGeneration = controllerGeneration,
         )
         CarPlayBackgroundSession.markSessionInactive()
@@ -2209,6 +2289,8 @@ class CarPlayHostActivity : ComponentActivity() {
             onAirPlayDucking = renderer::noteAirPlayDucking,
             onAirPlayDuckSessionReset = renderer::resetAirPlayDuckSession,
             forceWiredUsbReenumerationAtStart = forceUsbReenumeration,
+            preparedLocalMfi = DiPlayBootstrap.localIdentity(),
+            automaticWirelessLaunch = wirelessEnabled && intent.getBooleanExtra(AUTOMATIC_CONNECTION_EXTRA, false),
         )
         controller = next
         CarPlayMediaKeys.attach(this, next)
@@ -2991,10 +3073,6 @@ class CarPlayHostActivity : ComponentActivity() {
         AsyncDiagnosticLog.append(sessionLog, message)
     }
 
-    private fun appendFileLog(message: String) {
-        AsyncDiagnosticLog.append(sessionLog, message)
-    }
-
     private fun initializeSessionLog() {
         val logFile = File(File(filesDir, "logs"), "diplay.log")
         val activeLog = SessionLogFile(logFile)
@@ -3111,6 +3189,7 @@ class CarPlayHostActivity : ComponentActivity() {
     }
 
     private companion object {
+        val adaptiveFrameRate = NissanVideoFrameRate()
         const val TAG = "xcertplay-usb"
         const val SCREEN_TYPE_MAIN = 110
         const val SCREEN_TYPE_ALT = 111
@@ -3127,7 +3206,6 @@ class CarPlayHostActivity : ComponentActivity() {
         const val CONTROLLER_CLOSE_TIMEOUT_MILLIS = 4_000L
         const val AUDIO_CAPTURE_MARKER = "audio-capture.enabled"
         const val AUDIO_CAPTURE_DIRECTORY = "audio-captures"
-        const val PROTOCOL_TRACE_PREFIX = "TRACE "
         const val SETTINGS_SWIPE_DISTANCE_DP = 72
         const val SETTINGS_SWIPE_DIRECTION_RATIO = 1.15f
         const val MAX_SETTINGS_MENU_WIDTH_PX = 1200

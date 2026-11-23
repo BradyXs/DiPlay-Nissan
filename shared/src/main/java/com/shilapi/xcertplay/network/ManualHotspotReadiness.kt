@@ -67,6 +67,7 @@ internal class ManualHotspotReadiness(
     private val pause: (Long) -> Unit,
     private val nowMillis: () -> Long = { System.nanoTime() / 1_000_000 },
     private val log: (String) -> Unit = {},
+    private val fastReadyIfPlatformConfirms: Boolean = false,
 ) {
     fun await(timeoutMillis: Long): HotspotSelection {
         val deadline = nowMillis() + timeoutMillis
@@ -77,11 +78,15 @@ internal class ManualHotspotReadiness(
             if (nowMillis() >= deadline) throw WirelessStartupException(
                 WirelessStartupFailure.HOTSPOT_NOT_READY, "Hotspot network is not ready",
             )
-            val selected = selectHotspotInterface(sample(), log)
+            val snapshot = sample()
+            val selected = selectHotspotInterface(snapshot, log)
             if (cancelled()) throw InterruptedIOException("Hotspot readiness cancelled")
             stable = if (selected != null && previous?.sameAddress(selected) == true) stable + 1 else 1
             previous = selected
-            if (selected != null && stable >= WirelessStartupPolicy.STABLE_SAMPLES && nowMillis() < deadline) {
+            val platformConfirmed = selected != null && fastReadyIfPlatformConfirms &&
+                snapshot.apEnabled == true && snapshot.apInterfaces?.contains(selected.name) == true
+            if (selected != null && (stable >= WirelessStartupPolicy.STABLE_SAMPLES || platformConfirmed) &&
+                nowMillis() < deadline) {
                 log("hotspot interface confirmed iface=${selected.name} index=${selected.index} atMs=${nowMillis()}")
                 return selected
             }

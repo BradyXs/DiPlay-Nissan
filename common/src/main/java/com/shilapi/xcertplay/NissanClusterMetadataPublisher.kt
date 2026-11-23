@@ -56,7 +56,13 @@ internal object NissanClusterMetadataPublisher {
         }
     }
 
-    fun publish(mode: Int, title: String?, album: String?, artist: String?) {
+    fun publish(
+        mode: Int,
+        title: String?,
+        album: String?,
+        artist: String?,
+        onResult: ((Int) -> Unit)? = null,
+    ) {
         if (!BuildConfig.NISSAN_ANDROID_44_PROFILE || mode !in MODE_MEDIA..MODE_NAVIGATION) return
         val metadata = Metadata(mode, title.orEmpty(), album.orEmpty(), artist.orEmpty())
         val currentGeneration = synchronized(this) {
@@ -64,14 +70,18 @@ internal object NissanClusterMetadataPublisher {
             desiredMetadata = metadata
             generation
         }
-        worker.execute { publishDesired(currentGeneration, metadata) }
+        worker.execute { publishDesired(currentGeneration, metadata, onResult) }
     }
 
-    private fun publishDesired(expectedGeneration: Long, metadata: Metadata) {
+    private fun publishDesired(expectedGeneration: Long, metadata: Metadata, onResult: ((Int) -> Unit)?) {
         if (!isCurrentMetadata(expectedGeneration, metadata)) return
         val ready = ensureSupported()
         val result = if (ready) transact(OP_PUBLISH, metadata) else RESULT_TRANSPORT_ERROR
-        if (!isCurrentMetadata(expectedGeneration, metadata)) return
+        if (!isCurrentMetadata(expectedGeneration, metadata)) {
+            // A later route may supersede this request while Binder is still handling it.
+            if (isCurrentSession(expectedGeneration)) runCatching { onResult?.invoke(result) }
+            return
+        }
         val shouldLog = synchronized(this) {
             val changed = lastLoggedStatus != result ||
                 (result == RESULT_OK && lastLoggedMetadata != metadata)
@@ -80,6 +90,7 @@ internal object NissanClusterMetadataPublisher {
             changed
         }
         if (shouldLog) {
+            runCatching { onResult?.invoke(result) }
             if (result == RESULT_OK) {
                 log("metadata bridge publish mode=${metadata.mode} titleBytes=${metadata.title.utf8Length()} " +
                     "albumBytes=${metadata.album.utf8Length()} artistBytes=${metadata.artist.utf8Length()} result=ok")
@@ -92,7 +103,7 @@ internal object NissanClusterMetadataPublisher {
         // by the firmware bridge, so it does not repeatedly write to the MCU.
         val retry = synchronized(this) { supported != false } &&
             (result == RESULT_OK || result == RESULT_TRANSPORT_ERROR || result == -17 || result == -19)
-        if (retry) worker.schedule({ publishDesired(expectedGeneration, metadata) }, 10, TimeUnit.SECONDS)
+        if (retry) worker.schedule({ publishDesired(expectedGeneration, metadata, onResult) }, 10, TimeUnit.SECONDS)
     }
 
     private fun isCurrentSession(expectedGeneration: Long): Boolean = synchronized(this) {

@@ -40,6 +40,28 @@ class Iap2RouteGuidanceSubscriptionTest {
     }
 
     @Test
+    fun artworkOptOutOnlyRemovesTheArtworkFieldFromNowPlaying() {
+        val standard = Iap2ControlMessages.subscriptions()
+        val withoutArtwork = Iap2ControlMessages.subscriptions(includeArtwork = false)
+        assertEquals(standard.map { it.messageId }, withoutArtwork.map { it.messageId })
+        for ((original, filtered) in standard.zip(withoutArtwork)) {
+            if (original.messageId != 0x5000) {
+                assertArrayEquals(original.payload, filtered.payload)
+                continue
+            }
+            fun mediaFields(payload: ByteArray) = Iap2ParameterList.parse(
+                Iap2ParameterList.parse(payload).asList().single { it.id == 0 }.payload,
+            ).asList().map { it.id }
+            assertEquals(listOf(1, 4, 6, 12, 26), mediaFields(original.payload))
+            assertEquals(listOf(1, 4, 6, 12), mediaFields(filtered.payload))
+            val playbackGroup = { payload: ByteArray ->
+                Iap2ParameterList.parse(payload).asList().single { it.id == 1 }.payload
+            }
+            assertArrayEquals(playbackGroup(original.payload), playbackGroup(filtered.payload))
+        }
+    }
+
+    @Test
     fun startRouteGuidanceUpdatesRequestsDeclaredComponent() {
         val frame = Iap2ControlMessages.subscriptions().single { it.messageId == 0x5200 }
 

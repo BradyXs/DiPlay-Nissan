@@ -9,6 +9,7 @@ package com.shilapi.xcertplay.airplay
 class PairVerify(
     private val identity: AirPlayIdentity,
     private val pairings: PairingStore,
+    private val takePreparedKey: (() -> AirPlayCrypto.X25519KeyPair?)? = null,
 ) {
     data class ControlKeys(val readKey: ByteArray, val writeKey: ByteArray)
 
@@ -41,11 +42,15 @@ class PairVerify(
 
     private fun m2(tlv: Map<Int, ByteArray>): ByteArray {
         val clientEphemeralPublicKey = tlv[TYPE_PUBLIC_KEY] ?: return err(2)
-        val pair = AirPlayCrypto.x25519Generate()
+        val pair = takePreparedKey?.invoke() ?: AirPlayCrypto.x25519Generate()
         ephemeralPublicKey = pair.publicKey
         this.clientEphemeralPublicKey = clientEphemeralPublicKey
 
-        val shared = AirPlayCrypto.x25519Shared(pair.privateKey, clientEphemeralPublicKey)
+        val shared = try {
+            AirPlayCrypto.x25519Shared(pair.privateKey, clientEphemeralPublicKey)
+        } finally {
+            pair.privateKey.fill(0)
+        }
         sharedSecret = shared
         val encryptionKey = AirPlayCrypto.hkdfSha512(shared, VERIFY_ENCRYPT_SALT.asciiBytes(), VERIFY_ENCRYPT_INFO.asciiBytes())
         this.encryptionKey = encryptionKey

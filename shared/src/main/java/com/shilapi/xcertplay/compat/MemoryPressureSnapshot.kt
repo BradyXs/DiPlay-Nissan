@@ -13,10 +13,19 @@ internal object MemoryPressureSnapshot {
     fun describe(context: Context): String = runCatching { snapshot(context) }
         .getOrElse { "unavailable failureClass=${it.javaClass.simpleName.take(64)}" }
 
+    private data class SystemMemory(
+        val availableMb: Long?,
+        val totalMb: Long?,
+        val heapClassMb: Int?,
+        val lowMemory: Boolean?,
+        val thresholdMb: Long?,
+    )
+
     private fun snapshot(context: Context): String {
         val info = ActivityManager.MemoryInfo()
         val manager = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
         val systemMemory = runCatching {
+            val reported = manager != null
             manager?.getMemoryInfo(info)
             val available = info.availMem.takeIf { it > 0L }?.div(MIB)
                 ?: procMemFieldMb("MemAvailable")
@@ -26,7 +35,13 @@ internal object MemoryPressureSnapshot {
             } else {
                 procMemFieldMb("MemTotal")
             }
-            Triple(available, total, runCatching { manager?.memoryClass }.getOrNull())
+            SystemMemory(
+                availableMb = available,
+                totalMb = total,
+                heapClassMb = runCatching { manager?.memoryClass }.getOrNull(),
+                lowMemory = if (reported) info.lowMemory else null,
+                thresholdMb = info.threshold.takeIf { it > 0L }?.div(MIB),
+            )
         }.getOrNull()
 
         val runtime = Runtime.getRuntime()
@@ -35,11 +50,13 @@ internal object MemoryPressureSnapshot {
         val nativeHeapMb = runCatching { Debug.getNativeHeapAllocatedSize().coerceAtLeast(0L) / MIB }
             .getOrNull()
 
-        return "availableMb=${systemMemory?.first ?: "unknown"} " +
-            "totalMb=${systemMemory?.second ?: "unknown"} " +
-            "heapClassMb=${systemMemory?.third ?: "unknown"} " +
+        return "availableMb=${systemMemory?.availableMb ?: "unknown"} " +
+            "totalMb=${systemMemory?.totalMb ?: "unknown"} " +
+            "heapClassMb=${systemMemory?.heapClassMb ?: "unknown"} " +
             "appHeapUsedMb=$heapUsedMb appHeapMaxMb=$heapMaxMb " +
-            "nativeHeapMb=${nativeHeapMb ?: "unknown"}"
+            "nativeHeapMb=${nativeHeapMb ?: "unknown"} " +
+            "systemLowMemory=${systemMemory?.lowMemory ?: "unknown"} " +
+            "systemLowMemoryThresholdMb=${systemMemory?.thresholdMb ?: "unknown"}"
     }
 
     private fun procMemFieldMb(field: String): Long? = runCatching {

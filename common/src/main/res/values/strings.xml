@@ -556,7 +556,8 @@
     <string name="report_usb_copy_unavailable">USB copy: no writable drive found</string>
     <string name="report_usb_copy_paths">Additional copies:\n%1$s</string>
     <string name="settings_detailed_diagnostics_title">Detailed diagnostic logs</string>
-    <string name="settings_detailed_diagnostics_description">Record frequent video and wireless timing details. Keep off for normal driving; connection failures and stalls are still recorded.</string>
+    <string name="settings_detailed_diagnostics_description">Record frequent video and wireless timings, plus navigation text on Nissan. Leave off for normal driving; connection failures and stalls are still recorded.</string>
+    <string name="settings_adaptive_frame_rate">Adaptive 30–60 fps · next connection</string>
 
 
 

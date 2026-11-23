@@ -521,7 +521,8 @@
     <string name="report_usb_copy_unavailable">USB副本：找不到可寫入的USB隨身碟</string>
     <string name="report_usb_copy_paths">其他儲存位置：\n%1$s</string>
     <string name="settings_detailed_diagnostics_title">詳細診斷記錄</string>
-    <string name="settings_detailed_diagnostics_description">記錄高頻影片及無線連線耗時。日常使用建議關閉；連線故障與卡頓仍會記錄。</string>
+    <string name="settings_detailed_diagnostics_description">記錄高頻影片及無線連線耗時，日產版也會記錄導航路線文字。日常使用建議關閉，連線故障與卡頓仍會記錄。</string>
+    <string name="settings_adaptive_frame_rate">自適應 30–60 fps · 下次連線生效</string>
 
 
 

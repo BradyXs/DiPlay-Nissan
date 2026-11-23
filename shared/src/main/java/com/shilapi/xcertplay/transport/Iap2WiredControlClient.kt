@@ -24,6 +24,7 @@ class Iap2WiredControlClient(
     private val mfi: Iap2MfiAuthenticationClient,
     private val peerSilentResetMillis: Long = PEER_SILENT_RESET_MILLIS,
     private val peerIdleDiagnosticMillis: Long = PEER_IDLE_DIAGNOSTIC_MILLIS,
+    private val includeArtwork: Boolean = true,
 ) {
     fun run(
         identification: Iap2IdentificationConfig,
@@ -46,6 +47,8 @@ class Iap2WiredControlClient(
         airPlayConnectionPending: () -> Boolean = { false },
         /** Rebuild only NCM/VPN while retaining the authenticated iAP2/USB session. */
         reattachNcmVpn: ((Iap2WiredCarPlayEndpoint) -> Iap2WiredCarPlayEndpoint?)? = null,
+        /** Resolve the actual listening port after authentication and before advertising the endpoint. */
+        awaitAirPlayEndpoint: (() -> Iap2WiredCarPlayEndpoint)? = null,
     ): Iap2WiredControlResult {
         require(availableCurrentMilliAmps in 0..0xffff) {
             "availableCurrentMilliAmps must be in 0..65535"
@@ -68,7 +71,7 @@ class Iap2WiredControlClient(
         deadlineNanos.authenticated()
 
         send(powerSourceUpdate(availableCurrentMilliAmps), deadlineNanos)
-        for (subscription in subscriptions()) send(subscription, deadlineNanos)
+        for (subscription in subscriptions(includeArtwork)) send(subscription, deadlineNanos)
         stage = Iap2WiredControlStage.SUBSCRIBED
         onProgress("iap2 power/subscriptions sent")
 
@@ -77,7 +80,7 @@ class Iap2WiredControlClient(
         var startSessionNanos = 0L
         var lastReceivedMessageId: Int? = null
         var lastReceivedAtNanos: Long? = null
-        var activeEndpoint = endpoint
+        var activeEndpoint = awaitAirPlayEndpoint?.invoke() ?: endpoint
         var sameLinkRefreshSent = false
         var ncmVpnReattachAttempted = false
         var pendingConnectionLogged = false
@@ -303,7 +306,8 @@ class Iap2WiredControlClient(
             Iap2ControlMessages.powerSourceUpdate(availableCurrentMilliAmps, charging = true)
 
         /** Exact five subscription requests emitted by LIVI's wired bring-up. */
-        fun subscriptions(): List<Iap2Frame> = Iap2ControlMessages.subscriptions()
+        fun subscriptions(includeArtwork: Boolean = true): List<Iap2Frame> =
+            Iap2ControlMessages.subscriptions(includeArtwork)
 
         /** Builds the wired-only CarPlayStartSession message; no NCM or AirPlay socket is opened. */
         fun carPlayStartSession(endpoint: Iap2WiredCarPlayEndpoint): Iap2Frame =

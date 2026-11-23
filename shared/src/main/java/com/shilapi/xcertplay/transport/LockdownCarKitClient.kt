@@ -56,7 +56,6 @@ class LockdownCarKitClient(
         }
 
         val secureLockdown = LockdownPlistChannel(sessionTls)
-        var serviceStream: BlockingDuplexByteStream? = null
         try {
             val response = secureLockdown.request(
                 LockdownPlistValue.Dictionary(
@@ -89,18 +88,16 @@ class LockdownCarKitClient(
             } else {
                 serviceConnection
             }
-            serviceStream = readyStream
-            val ownedStream = CarkitServiceStream(readyStream, secureLockdown)
-            serviceStream = null
-            return ownedStream
-        } finally {
-            if (serviceStream != null) {
-                try {
-                    serviceStream.close()
-                } finally {
-                    secureLockdown.close()
-                }
+            return CarkitServiceStream(readyStream, secureLockdown)
+        } catch (failure: Throwable) {
+            // StartService or the second TLS handshake may fail before any service stream
+            // can own this Lockdown connection. Close it before a new USB attempt opens.
+            try {
+                secureLockdown.close()
+            } catch (closeFailure: Throwable) {
+                if (failure !== closeFailure) failure.addSuppressed(closeFailure)
             }
+            throw failure
         }
     }
 
