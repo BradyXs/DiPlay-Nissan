@@ -252,6 +252,15 @@ class CarPlayHostActivity : ComponentActivity() {
     // Direct SurfaceView output: hardware overlay without TextureView composition overhead.
     private var directSurfaceView = false
     private var visibleVideoFrameReleased = false
+    @Volatile private var firstVideoInputAtElapsedMs = 0L
+    @Volatile private var firstVideoInputGeneration = -1
+    private val firstVideoInputPending = AtomicBoolean(false)
+    private var firstFrameRecoveryAttempts = 0
+    private var firstFrameRecoveryExhausted = false
+    private var preserveVideoRecoveryOnNextStart = false
+    private var videoCompatibilityProfileKey: String? = null
+    private var videoCompatibilityResolutionPercent = 100
+    private val firstFrameRecoveryWatchdog = Runnable { checkFirstFrameRecovery() }
     @Volatile private var detailedDiagnosticsEnabled = false
     // Sinks whose sessions are being torn down; their decoders may still render to the current surface
     // until they have released their codecs, so a destroyed surface is detached from them too. A restart
@@ -1116,6 +1125,7 @@ class CarPlayHostActivity : ComponentActivity() {
     override fun onDestroy() {
         uiPageProbe?.cancel("activity-destroyed")
         uiPageProbe = null
+        clearFirstFrameRecoveryWatchdog()
         nightModeController.pause()
         removeVideoSurfaceProbe()
         fallbackVideoView?.holder?.removeCallback(fallbackSurfaceCallback)
@@ -1617,7 +1627,17 @@ class CarPlayHostActivity : ComponentActivity() {
                 "touchscreen=${resources.configuration.touchscreen}",
         )
         val requestedResolutionPercent = displayScalePercent
-        val requestedResolutionDisplay = CarPlayDisplayScale.applyPercent(baseDisplay, requestedResolutionPercent)
+        val compatibilityKey = if (com.shilapi.xcertplay.host.BuildConfig.NISSAN_ANDROID_44_PROFILE) {
+            videoCompatibilityKey(size, requestedResolutionPercent)
+        } else null
+        val rememberedCompatibilityPercent = compatibilityKey?.let {
+            videoCompatibilityPreferences().getInt(it, requestedResolutionPercent)
+                .coerceIn(CarPlayDisplayScale.MIN_PERCENT, requestedResolutionPercent)
+        } ?: requestedResolutionPercent
+        videoCompatibilityProfileKey = compatibilityKey
+        videoCompatibilityResolutionPercent = rememberedCompatibilityPercent
+        val requestedResolutionDisplay =
+            CarPlayDisplayScale.applyPercent(baseDisplay, rememberedCompatibilityPercent)
         var resolutionDisplay = requestedResolutionDisplay
         val requestedPercent = uiScalePercent
         var scaledDisplay = CarPlayUiScale.apply(resolutionDisplay, uiScalePercent)
@@ -1647,12 +1667,18 @@ class CarPlayHostActivity : ComponentActivity() {
                 )
             }
         }
-        if (!support.supported && displayScalePercent > 100) {
+        if (!support.supported && rememberedCompatibilityPercent > 100) {
             resolutionFallback = true
-            displayScalePercent = 100
-            displayScaleTenths = CarPlayDisplayScale.DEFAULT_TENTHS
-            AirPlayPersistence.saveDisplayScalePercent(this, displayScalePercent)
-            AirPlayPersistence.saveDisplayScaleTenths(this, displayScaleTenths)
+            if (rememberedCompatibilityPercent == requestedResolutionPercent) {
+                displayScalePercent = 100
+                displayScaleTenths = CarPlayDisplayScale.DEFAULT_TENTHS
+                videoCompatibilityResolutionPercent = 100
+                AirPlayPersistence.saveDisplayScalePercent(this, displayScalePercent)
+                AirPlayPersistence.saveDisplayScaleTenths(this, displayScaleTenths)
+            } else {
+                compatibilityKey?.let { videoCompatibilityPreferences().edit().remove(it).apply() }
+                videoCompatibilityResolutionPercent = 100
+            }
             resolutionDisplay = baseDisplay
             scaledDisplay = CarPlayUiScale.apply(resolutionDisplay, uiScalePercent)
             appendLog("Enlarged CarPlay resolution unavailable reason=${support.reason}; using 100%")
@@ -1682,11 +1708,13 @@ class CarPlayHostActivity : ComponentActivity() {
         val declared = if (viewAreas == null) display else
             display.copy(viewAreas = viewAreas.areas, initialViewArea = viewAreas.current)
         val requestSummary = "Display request selected=${CarPlayUiScale.label(requestedPercent)} percent=$requestedPercent " +
-            "surface=${size.width}x${size.height} resolution=${requestedResolutionPercent}% " +
+            "surface=${size.width}x${size.height} resolutionRequested=${requestedResolutionPercent}% " +
+            "compatibilityResolution=${videoCompatibilityResolutionPercent}% " +
             "base=${requestedResolutionDisplay.widthPixels}x${requestedResolutionDisplay.heightPixels} " +
             "candidate=${candidate.widthPixels}x${candidate.heightPixels} fps=$fps " +
             "codec=${if (hevcEnabled) "HEVC" else "H.264"} softwareHevc=$hevcSoftwareDecoderEnabled"
         val effectiveSummary = "Display effective percent=$uiScalePercent resolution=${displayScalePercent}% " +
+            "compatibilityResolution=${videoCompatibilityResolutionPercent}% " +
             "canvas=${display.widthPixels}x${display.heightPixels} decision=${support.reason} " +
             "physical=${physical.widthMm}x${physical.heightMm}mm safeArea=${display.safeArea} " +
             "drawOutside=${display.safeAreaDrawOutside}"
@@ -1915,11 +1943,14 @@ class CarPlayHostActivity : ComponentActivity() {
                         AsyncDiagnosticLog.append(diagnosticLog,
                             "VIDEO_FPS adaptive current=${rate.fps} next=$nextFps " +
                                 "rx=${window.inputFps.toInt()} queueP90Ms=${window.queueP90Millis} " +
+                                "decodeP90Ms=${window.decodeP90Millis} " +
+                                "inputWaitP90Ms=${window.inputWaitP90Millis} recoveries=${window.recoveries} " +
                                 "decodePercent=${(window.decodedFraction * 100).toInt()} " +
                                 "shownPercent=${(window.shownFraction * 100).toInt()}")
                     }
                 }
             },
+            onMainVideoFrameInput = { onMainVideoFrameInput(controllerGeneration) },
             allowFirstFrameGrace = com.shilapi.xcertplay.host.BuildConfig.NISSAN_ANDROID_44_PROFILE && wirelessEnabled,
         )
     }
@@ -1960,6 +1991,7 @@ class CarPlayHostActivity : ComponentActivity() {
                     if (controllerGeneration != restartGeneration || activeAirPlaySession !== session || shuttingDown.get()) return@runOnUiThread
                     CarPlayBackgroundSession.markVideoFrameRendered()
                     visibleVideoFrameReleased = true
+                    recordFirstFrameRendered(controllerGeneration, session)
                     completeProjectionRestore("video-frame-rendered")
                     connectionProgress?.onFirstFrame()
                     paintConnectionProgress()
@@ -2195,6 +2227,12 @@ class CarPlayHostActivity : ComponentActivity() {
     private fun startCarPlay(size: DisplaySize) {
         if (CarPlayBackgroundSession.hasSession() && !CarPlayBackgroundSession.isOwner(this)) return
         if (shuttingDown.get() || handshakeResetInProgress || controller != null) return
+        clearFirstFrameRecoveryWatchdog()
+        if (!preserveVideoRecoveryOnNextStart) {
+            firstFrameRecoveryAttempts = 0
+            firstFrameRecoveryExhausted = false
+        }
+        preserveVideoRecoveryOnNextStart = false
         if (wirelessEnabled) {
             val hotspotError = manualHotspotSettingsError()
             if (hotspotError != null) {
@@ -2641,9 +2679,17 @@ class CarPlayHostActivity : ComponentActivity() {
     }
 
     /** Full-stack fallback when an AirPlay-only reconnect is unavailable. */
-    private fun restartCarPlay(reason: String) {
+    private fun restartCarPlay(reason: String, preserveVideoRecovery: Boolean = false) {
         if (!CarPlayBackgroundSession.isOwner(this)) return
         if (shuttingDown.get() || handshakeResetInProgress) return
+        clearFirstFrameRecoveryWatchdog()
+        if (preserveVideoRecovery) {
+            preserveVideoRecoveryOnNextStart = true
+        } else {
+            preserveVideoRecoveryOnNextStart = false
+            firstFrameRecoveryAttempts = 0
+            firstFrameRecoveryExhausted = false
+        }
         val size = activeDisplaySize ?: return
         startupRetryBudget.disconnected()
         startupRetryButton?.visibility = View.GONE
@@ -2928,6 +2974,151 @@ class CarPlayHostActivity : ComponentActivity() {
         }
     }
 
+    /** Starts the compatibility timer only after a decrypted main-screen frame reaches the sink. */
+    private fun onMainVideoFrameInput(generation: Int) {
+        if (!com.shilapi.xcertplay.host.BuildConfig.NISSAN_ANDROID_44_PROFILE ||
+            firstVideoInputAtElapsedMs != 0L || visibleVideoFrameReleased ||
+            CarPlayBackgroundSession.hasRenderedVideoFrame ||
+            firstFrameRecoveryExhausted ||
+            !firstVideoInputPending.compareAndSet(false, true)
+        ) return
+        mainHandler.post {
+            if (generation != restartGeneration || shuttingDown.get() || visibleVideoFrameReleased ||
+                CarPlayBackgroundSession.hasRenderedVideoFrame || firstFrameRecoveryExhausted
+            ) {
+                firstVideoInputPending.set(false)
+                return@post
+            }
+            if (firstVideoInputAtElapsedMs == 0L) {
+                firstVideoInputAtElapsedMs = SystemClock.elapsedRealtime()
+                firstVideoInputGeneration = generation
+                appendLog(
+                    "VIDEO_FIRST_FRAME watchdog armed timeoutMs=$FIRST_FRAME_RECOVERY_TIMEOUT_MILLIS " +
+                        "surfaceValid=${currentSurface?.isValid == true} attempt=$firstFrameRecoveryAttempts",
+                )
+                mainHandler.removeCallbacks(firstFrameRecoveryWatchdog)
+                mainHandler.postDelayed(firstFrameRecoveryWatchdog, FIRST_FRAME_RECOVERY_TIMEOUT_MILLIS)
+            }
+            firstVideoInputPending.set(false)
+        }
+    }
+
+    private fun clearFirstFrameRecoveryWatchdog() {
+        mainHandler.removeCallbacks(firstFrameRecoveryWatchdog)
+        firstVideoInputAtElapsedMs = 0L
+        firstVideoInputGeneration = -1
+        firstVideoInputPending.set(false)
+    }
+
+    private fun checkFirstFrameRecovery() {
+        val generation = firstVideoInputGeneration
+        val startedAt = firstVideoInputAtElapsedMs
+        if (!com.shilapi.xcertplay.host.BuildConfig.NISSAN_ANDROID_44_PROFILE ||
+            generation < 0 || generation != restartGeneration || startedAt == 0L ||
+            shuttingDown.get() || handshakeResetInProgress || visibleVideoFrameReleased ||
+            CarPlayBackgroundSession.hasRenderedVideoFrame
+        ) return
+
+        val elapsed = SystemClock.elapsedRealtime() - startedAt
+        if (elapsed < FIRST_FRAME_RECOVERY_TIMEOUT_MILLIS) {
+            mainHandler.postDelayed(firstFrameRecoveryWatchdog,
+                FIRST_FRAME_RECOVERY_TIMEOUT_MILLIS - elapsed)
+            return
+        }
+
+        val sessionReady = activeAirPlaySession != null && SCREEN_TYPE_MAIN in activeScreenStreamTypes
+        val surfaceReady = currentSurface?.isValid == true
+        if (!sessionReady || !surfaceReady) {
+            if (elapsed < FIRST_FRAME_RECOVERY_MAX_WAIT_MILLIS) {
+                mainHandler.postDelayed(firstFrameRecoveryWatchdog, FIRST_FRAME_RECOVERY_RECHECK_MILLIS)
+            } else {
+                appendLog(
+                    "VIDEO_FIRST_FRAME recovery skipped elapsedMs=$elapsed " +
+                        "sessionReady=$sessionReady surfaceValid=$surfaceReady",
+                )
+                clearFirstFrameRecoveryWatchdog()
+            }
+            return
+        }
+
+        if (firstFrameRecoveryAttempts >= MAX_FIRST_FRAME_RECOVERY_ATTEMPTS) {
+            firstFrameRecoveryExhausted = true
+            appendLog(
+                "VIDEO_FIRST_FRAME recovery exhausted attempts=$firstFrameRecoveryAttempts " +
+                    "elapsedMs=$elapsed resolution=${videoCompatibilityResolutionPercent}% " +
+                    "action=request-keyframe",
+            )
+            sink?.refreshPicture(SCREEN_TYPE_MAIN)
+            clearFirstFrameRecoveryWatchdog()
+            return
+        }
+
+        val nextPercent = nextVideoCompatibilityResolution(videoCompatibilityResolutionPercent)
+        if (nextPercent == null) {
+            firstFrameRecoveryExhausted = true
+            appendLog(
+                "VIDEO_FIRST_FRAME recovery exhausted minimumResolution=" +
+                    "${videoCompatibilityResolutionPercent}% elapsedMs=$elapsed action=request-keyframe",
+            )
+            sink?.refreshPicture(SCREEN_TYPE_MAIN)
+            clearFirstFrameRecoveryWatchdog()
+            return
+        }
+
+        firstFrameRecoveryAttempts++
+        videoCompatibilityProfileKey?.let { key ->
+            videoCompatibilityPreferences().edit().putInt(key, nextPercent).apply()
+        }
+        preserveVideoRecoveryOnNextStart = true
+        appendLog(
+            "VIDEO_FIRST_FRAME timeout received=true rendered=false elapsedMs=$elapsed " +
+                "attempt=$firstFrameRecoveryAttempts/$MAX_FIRST_FRAME_RECOVERY_ATTEMPTS " +
+                "resolution=${videoCompatibilityResolutionPercent}%->$nextPercent% action=restart",
+        )
+        clearFirstFrameRecoveryWatchdog()
+        restartCarPlay(
+            "Nissan first-frame compatibility recovery " +
+                "$firstFrameRecoveryAttempts/$MAX_FIRST_FRAME_RECOVERY_ATTEMPTS",
+            preserveVideoRecovery = true,
+        )
+    }
+
+    private fun nextVideoCompatibilityResolution(currentPercent: Int): Int? {
+        val next = listOf(80, 70, 60, 50, 40, CarPlayDisplayScale.MIN_PERCENT)
+            .firstOrNull { it < currentPercent }
+            ?: (currentPercent - 10).coerceAtLeast(CarPlayDisplayScale.MIN_PERCENT)
+        return next.takeIf { it < currentPercent }
+    }
+
+    private fun videoCompatibilityPreferences() =
+        getSharedPreferences("nissan_video_compatibility", Context.MODE_PRIVATE)
+
+    private fun videoCompatibilityKey(size: DisplaySize, requestedPercent: Int): String =
+        "${Build.FINGERPRINT}|${size.width}x${size.height}|" +
+            "${if (wirelessEnabled) "wireless" else "wired"}|" +
+            "${if (hevcEnabled) "hevc" else "h264"}|${hevcSoftwareDecoderEnabled}|" +
+            "${AirPlayPersistence.loadFpsMode(this)}|$fps|$requestedPercent"
+
+    private fun recordFirstFrameRendered(generation: Int, session: AirPlaySession) {
+        clearFirstFrameRecoveryWatchdog()
+        if (!com.shilapi.xcertplay.host.BuildConfig.NISSAN_ANDROID_44_PROFILE) return
+        mainHandler.postDelayed({
+            if (generation != restartGeneration || activeAirPlaySession !== session ||
+                shuttingDown.get() || !visibleVideoFrameReleased
+            ) return@postDelayed
+            val key = videoCompatibilityProfileKey ?: return@postDelayed
+            videoCompatibilityPreferences().edit()
+                .putInt(key, videoCompatibilityResolutionPercent)
+                .apply()
+            appendLog(
+                "VIDEO_COMPAT profile stable=true resolution=${videoCompatibilityResolutionPercent}% " +
+                    "attempts=$firstFrameRecoveryAttempts saved=true",
+            )
+            firstFrameRecoveryAttempts = 0
+            preserveVideoRecoveryOnNextStart = false
+        }, VIDEO_COMPATIBILITY_STABLE_MILLIS)
+    }
+
     private fun setStatus(message: String) {
         runOnUiThread {
             setConnectionStage(message)
@@ -3204,6 +3395,11 @@ class CarPlayHostActivity : ComponentActivity() {
         const val RECONNECT_DELAY_MILLIS = 2_000L
         const val IAP_TUNNEL_RECONNECT_DELAY_MILLIS = 15_000L
         const val CONTROLLER_CLOSE_TIMEOUT_MILLIS = 4_000L
+        const val FIRST_FRAME_RECOVERY_TIMEOUT_MILLIS = 8_000L
+        const val FIRST_FRAME_RECOVERY_MAX_WAIT_MILLIS = 15_000L
+        const val FIRST_FRAME_RECOVERY_RECHECK_MILLIS = 1_000L
+        const val MAX_FIRST_FRAME_RECOVERY_ATTEMPTS = 2
+        const val VIDEO_COMPATIBILITY_STABLE_MILLIS = 3_000L
         const val AUDIO_CAPTURE_MARKER = "audio-capture.enabled"
         const val AUDIO_CAPTURE_DIRECTORY = "audio-captures"
         const val SETTINGS_SWIPE_DISTANCE_DP = 72

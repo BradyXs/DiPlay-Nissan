@@ -130,16 +130,17 @@ internal class VideoStats(
         if (elapsedNs < WINDOW_NS) return null
         val seconds = elapsedNs / 1e9
         onPlaybackWindow?.let { observe ->
-            val queueP90 = if (queueAgeSamples == 0) -1 else {
-                val sorted = queueAgeMicros.copyOf(queueAgeSamples).also { it.sort() }
-                sorted[(queueAgeSamples - 1) * 90 / 100] / 1000
-            }
+            val queueP90 = percentileMillis(queueAgeMicros, queueAgeSamples)
+            val decodeP90 = percentileMillis(decodeMicros, decodeSamples)
+            val inputWaitP90 = percentileMillis(inputWaitMicros, inputWaitSamples)
             val inputs = received.coerceAtLeast(1).toDouble()
             observe(NissanVideoFrameRate.PlaybackWindow(
                 inputFps = received / seconds,
                 decodedFraction = codecOutput / inputs,
                 shownFraction = rendered / inputs,
                 queueP90Millis = queueP90,
+                decodeP90Millis = decodeP90,
+                inputWaitP90Millis = inputWaitP90,
                 maxArrivalGapMillis = maxOf(adaptiveArrivalGapNs, now - lastArrivalNs) / 1_000_000,
                 recoveries = recoveries,
                 visibleThroughout = surfaceVisibleThroughout,
@@ -165,6 +166,12 @@ internal class VideoStats(
         touchSamples = 0; touchLatencySumNs = 0; maxTouchLatencyNs = 0
         decodeSamples = 0; queueAgeSamples = 0; frameAgeSamples = 0; inputWaitSamples = 0; late = 0
         return line
+    }
+
+    private fun percentileMillis(values: IntArray, samples: Int, percentile: Int = 90): Int {
+        if (samples == 0) return -1
+        val sorted = values.copyOf(samples).also { it.sort() }
+        return sorted[(samples - 1) * percentile / 100] / 1000
     }
 
     private companion object {

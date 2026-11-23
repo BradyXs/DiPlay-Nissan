@@ -188,6 +188,28 @@ class CarPlayMediaEngine(
         )
         val connectionId = stream["streamConnectionID"]
         val latencyMs = (stream["audioLatencyMs"] as? Number)?.toInt() ?: 0
+        val peerControlPort = (stream["controlPort"] as? Number)?.toInt()
+            ?.takeIf { it in 1..65535 }
+        val redundantAudio = when (val value = stream["redundantAudio"]) {
+            null -> "absent"
+            is Boolean -> value.toString()
+            is Number -> value.toString()
+            else -> "present:${value.javaClass.simpleName}"
+        }
+        val hasRedundantAudio = when (val value = stream["redundantAudio"]) {
+            is Boolean -> value
+            is Number -> value.toLong() > 0L
+            else -> false
+        }
+        val samplesPerFrame = (stream["spf"] as? Number)?.toInt()
+        val carUpCandidate = type == STREAM_TYPE_MAIN_HIGH_AUDIO && audioType == "media" &&
+            peerControlPort != null && !hasRedundantAudio
+        session.logDebug(
+            "Audio RTP recovery probe type=$type audioType=$audioType codec=${format.codec} " +
+                "peerControlPort=${peerControlPort ?: "absent-or-invalid"} " +
+                "redundantAudio=$redundantAudio latencyMs=$latencyMs spf=${samplesPerFrame ?: "absent"} " +
+                "carUpCandidate=$carUpCandidate",
+        )
         val meta = AudioMeta(type, format, connectionId, latencyMs)
         val microphone = microphoneConfig(session, type, stream, format)
         val pendingMic = microphone?.let {
@@ -220,7 +242,15 @@ class CarPlayMediaEngine(
 
         val capture = audioCaptureDirectory?.let { AudioPacketCapture(it, type) }
         if (capture != null) audioCaptures[streamKey] = capture
-        val audio = AudioStream(key, type, session::logDebug, session.localAddress)
+        val audio = AudioStream(
+            key,
+            type,
+            session::logDebug,
+            session.localAddress,
+            session.remoteAddress,
+            peerControlPort,
+            carUpCandidate,
+        )
         val (dataPort, controlPort) = audio.listen(
             object : AudioStream.Listener {
                 override fun onStarted(firstSample: Int) {
@@ -704,6 +734,7 @@ class CarPlayMediaEngine(
         const val STREAM_TYPE_MAIN_SCREEN = 110
         const val STREAM_TYPE_ALT_SCREEN = 111
         const val STREAM_TYPE_MAIN_AUDIO = 100
+        const val STREAM_TYPE_MAIN_HIGH_AUDIO = 102
         const val STREAM_TYPE_DATA = 130
         const val DATASTREAM_OUTPUT_KEY = "DataStream-Output-Encryption-Key"
         const val DATASTREAM_INPUT_KEY = "DataStream-Input-Encryption-Key"

@@ -76,6 +76,7 @@ class Ipv6NcmBridge(
     private val running = AtomicBoolean(false)
     private var startedAtNanos = 0L
     private var seenTcpSyn = false
+    @Volatile
     private var seenInboundIpv6 = false
     private val announcementReports = AtomicInteger(INITIAL_NA_REPORT_LIMIT)
     private val startupPacketGate = NcmStartupPacketGate(asyncNeighborAdvertisement)
@@ -246,7 +247,8 @@ class Ipv6NcmBridge(
                 }
                 if (!loggedOutbound) {
                     loggedOutbound = true
-                    val outMsg = "ncm first outbound ipv6 bytes=$length destination=${mac.macString()} multicast=${multicastMac != null}"
+                    val outMsg = "ncm first outbound ipv6 ${ipv6.diagnosticSummary(0)} " +
+                        "destination=${mac.macString()} multicast=${multicastMac != null}"
                     Log.i(TAG, outMsg)
                     runCatching { onDebugLog(outMsg) }
                 }
@@ -262,7 +264,8 @@ class Ipv6NcmBridge(
                 ) {
                     runCatching {
                         onDebugLog("NCM_STARTUP stage=tun-packet-write result=${if (sent) "sent" else "not-ready"} " +
-                            "bytes=${ipv6.size} lockWaitMs=$lockWaitMs usbTransferMs=$usbTransferMs")
+                            "bytes=${ipv6.size} packet=${ipv6.diagnosticSummary(0)} " +
+                            "firstPhonePacketSeen=$seenInboundIpv6 lockWaitMs=$lockWaitMs usbTransferMs=$usbTransferMs")
                     }
                 }
             }

@@ -6,6 +6,7 @@ import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.InetAddress
 import java.net.InetSocketAddress
+import java.net.SocketTimeoutException
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -31,6 +32,9 @@ class AudioStream(
     private val streamType: Int = -1,
     private val onDiagnostic: (String) -> Unit = {},
     private val bindReference: InetAddress? = null,
+    private val remotePeer: InetAddress? = null,
+    private val remoteControlPort: Int? = null,
+    private val passiveControlProbeEnabled: Boolean = false,
 ) : Closeable {
     interface Listener {
         fun onStarted(firstSample: Int) {}
@@ -174,13 +178,78 @@ class AudioStream(
     }
 
     private fun runControl(socket: DatagramSocket) {
+        val stats = AudioControlStats(
+            streamType,
+            remoteControlPort,
+            onDiagnostic,
+        )
+        if (passiveControlProbeEnabled) runCatching { socket.soTimeout = CONTROL_PROBE_INTERVAL_MILLIS }
         val buffer = ByteArray(DATAGRAM_BYTES)
-        while (!closed.get()) {
-            try {
-                socket.receive(DatagramPacket(buffer, buffer.size))
-            } catch (_: Exception) {
-                if (closed.get()) return
+        try {
+            while (!closed.get()) {
+                try {
+                    val packet = DatagramPacket(buffer, buffer.size)
+                    socket.receive(packet)
+                    stats.received(packet, remotePeer)
+                } catch (_: SocketTimeoutException) {
+                    if (closed.get()) return
+                    stats.flush(reportIdle = true)
+                } catch (_: Exception) {
+                    if (closed.get()) return
+                }
             }
+        } finally {
+            stats.flush(ended = true)
+        }
+    }
+
+    /** Passive RTCP/control evidence only; this deliberately sends no feedback to the phone. */
+    private class AudioControlStats(
+        private val streamType: Int,
+        private val expectedPeerPort: Int?,
+        private val report: (String) -> Unit,
+    ) {
+        private var packets = 0
+        private var bytes = 0L
+        private var peerMatches = 0
+        private var peerMismatches = 0
+        private var lastReportNs = System.nanoTime()
+        private val packetTypes = linkedMapOf<Int, Int>()
+
+        fun received(packet: DatagramPacket, expectedPeer: InetAddress?) {
+            packets++
+            bytes += packet.length
+            val expectedAddressMatches = expectedPeer == null || expectedPeer == packet.address
+            val expectedPortMatches = expectedPeerPort == null || expectedPeerPort == packet.port
+            if (expectedAddressMatches && expectedPortMatches) peerMatches++ else peerMismatches++
+            if (packet.length >= 2) {
+                val packetType = packet.data[packet.offset + 1].toInt() and 0xff
+                packetTypes[packetType] = (packetTypes[packetType] ?: 0) + 1
+            }
+            val now = System.nanoTime()
+            if (packets == 1 || now - lastReportNs >= REPORT_INTERVAL_NS) flush()
+        }
+
+        fun flush(ended: Boolean = false, reportIdle: Boolean = false) {
+            if (packets == 0 && !reportIdle) return
+            runCatching {
+                report(
+                    "Audio RTP control type=$streamType packets=$packets bytes=$bytes " +
+                        "packetTypeCounts=${packetTypes.entries.joinToString(",") { "${it.key}:${it.value}" }} " +
+                        "expectedPeerPort=${expectedPeerPort ?: "unknown"} " +
+                        "sourceMatches=$peerMatches sourceMismatches=$peerMismatches ended=$ended",
+                )
+            }
+            packets = 0
+            bytes = 0
+            peerMatches = 0
+            peerMismatches = 0
+            packetTypes.clear()
+            lastReportNs = System.nanoTime()
+        }
+
+        private companion object {
+            const val REPORT_INTERVAL_NS = 5_000_000_000L
         }
     }
 
@@ -201,6 +270,7 @@ class AudioStream(
         const val TAG = "xcertplay-usb"
         const val DATAGRAM_BYTES = 4_096
         const val AUDIO_RECEIVE_BUFFER_BYTES = 512 * 1024
+        const val CONTROL_PROBE_INTERVAL_MILLIS = 5_000
         const val RTP_HEADER_LEN = 12
         const val TAG_LEN = 16
         const val NONCE_LEN = 8
