@@ -1440,28 +1440,9 @@ class DiPlayActivity : ComponentActivity() {
         section(content, "${getString(R.string.about_public_preview_prefix)}${version()}") { card ->
             card.addView(label(getString(R.string.an_independent_carplay_receiver_for_android_head_units_wir), 17, TEXT))
         }
-        section(content, getString(R.string.headunit_manager_title)) { card ->
-            card.addView(label(getString(R.string.headunit_manager_description), 15, MUTED))
-            card.addView(button(getString(R.string.headunit_manager_open), false, ::openHeadunitManager),
-                matchButton(14, 60))
-            card.addView(button(getString(R.string.headunit_manager_download), false, ::openHeadunitManagerRelease),
-                matchButton(10, 60))
-        }
         section(content, getString(R.string.made_possible_by_open_source)) { card ->
             card.addView(label(getString(R.string.receiver_based_on_xcertplay_licensed_under_gpl_3_0_diplay), 16, MUTED))
         }
-    }
-
-    private fun openHeadunitManager() {
-        val intent = Intent(Intent.ACTION_MAIN).setClassName(
-            HEADUNIT_MANAGER_PACKAGE, "$HEADUNIT_MANAGER_PACKAGE.MainActivity")
-        runCatching { startActivity(intent) }.onFailure { openHeadunitManagerRelease() }
-    }
-
-    private fun openHeadunitManagerRelease() {
-        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(HEADUNIT_MANAGER_RELEASE_URL))
-        runCatching { startActivity(intent) }
-            .onFailure { toast(getString(R.string.headunit_manager_open_failed)) }
     }
 
     private fun carHotspotOff(): Boolean =
@@ -2929,9 +2910,6 @@ class DiPlayActivity : ComponentActivity() {
 
         private const val VEHICLE_VALIDATION_RETRY_MILLIS = 500L
         private const val ADB_KEY_SAVE_WAIT_MILLIS = 500L
-        private const val HEADUNIT_MANAGER_PACKAGE = "com.bradyxu.headunitmanager"
-        private const val HEADUNIT_MANAGER_RELEASE_URL =
-            "https://github.com/BradyXs/headunit-manager/releases/latest"
         private val BG = DiPlayCardUi.BG
         private val SURFACE = DiPlayCardUi.SURFACE
         // One step lighter than a card, so a button reads as a button even where its 1 px border is faint.
