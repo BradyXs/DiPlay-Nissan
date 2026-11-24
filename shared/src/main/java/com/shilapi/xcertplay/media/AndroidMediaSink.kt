@@ -434,7 +434,6 @@ class AndroidMediaSink(
      */
     private val videoPacingDelayMillis: Int = 0,
     private val allowFirstFrameGrace: Boolean = false,
-    private val onMainVideoPlaybackWindow: ((NissanVideoFrameRate.PlaybackWindow) -> Unit)? = null,
     /** Called after a decrypted main-screen frame reaches this sink, before decoder submission. */
     private val onMainVideoFrameInput: (() -> Unit)? = null,
 ) : MediaSink {
@@ -1343,7 +1342,6 @@ class AndroidMediaSink(
             videoDiagnosticHandlers[type]?.invoke(it)
         },
         statsLabel = statsLabel,
-        onPlaybackWindow = onMainVideoPlaybackWindow.takeIf { type == MAIN_SCREEN_TYPE && statsLabel == null },
         allowFirstFrameGrace = allowFirstFrameGrace && type == MAIN_SCREEN_TYPE &&
             statsLabel == null && !mainVideoFrameReleased,
         onExit = ::onVideoDecoderExit,
@@ -1464,7 +1462,6 @@ private class VideoDecoder(
     statsLabel: String? = null,
     pacingDelayNanos: Long = 0L,
     allowFirstFrameGrace: Boolean = false,
-    onPlaybackWindow: ((NissanVideoFrameRate.PlaybackWindow) -> Unit)? = null,
     /** Called on the worker as its last step, after it has released its codec. */
     private val onExit: (VideoDecoder) -> Unit = {},
 ) : Closeable {
@@ -1515,7 +1512,6 @@ private class VideoDecoder(
     // The main screen keeps the historical log format; other screens are labelled.
     private val stats = VideoStats(
         statsLabel ?: if (streamType == MAIN_SCREEN_TYPE) "" else " stream=$streamType",
-        onPlaybackWindow = onPlaybackWindow,
     )
     private val thread = Thread(::run, "carplay-video").apply { isDaemon = true }
 
@@ -1631,9 +1627,17 @@ private class VideoDecoder(
                         }
                         is VideoJob.SurfaceChanged -> changeSurface(job.surface)
                         is VideoJob.DetachSurface -> detach(job.request)
-                        // Once per new surface, so it skips the rate limit an earlier request may still hold.
+                        // A surface reconfigure already requests an IDR from configureDecoder().
+                        // Avoid issuing a second request in the same queue turn; some phones then
+                        // send duplicate large frames while the API 19 decoder is warming up.
                         is VideoJob.RefreshPicture -> if (decoder != null) {
-                            requestKeyFrameNow("surface_refresh")
+                            if (pendingKeyFrameRequestId != 0L &&
+                                System.nanoTime() - lastKeyFrameRequestNs < KEYFRAME_REQUEST_COOLDOWN_NS
+                            ) {
+                                report("keyframe_refresh skipped reason=recent_request id=$pendingKeyFrameRequestId")
+                            } else {
+                                requestKeyFrameNow("surface_refresh")
+                            }
                         }
                         is VideoJob.Resync -> {
                             recoveryAnchorPending = false
@@ -1642,7 +1646,7 @@ private class VideoDecoder(
                         null -> Unit
                     }
                     decoder?.let(::drainOutput)
-                    stats.logIfDue(outputSurface != null && outputSurface !== parking?.surface)?.let(report)
+                    stats.logIfDue()?.let(report)
                     if (referenceChain.needsKeyFrame && !recoveryAnchorPending && lastConfig != null && outputSurface != null) {
                         requestKeyFrameIfDue("reference_chain_missing_idr")
                     }
@@ -1709,10 +1713,15 @@ private class VideoDecoder(
             DecoderAttempt(codecName = null, tuned = false),
         ) + softwareDecoderName(mime)?.let { listOf(DecoderAttempt(it, tuned = false)) }.orEmpty()
         var next: MediaCodec? = null
+        var attemptsUsed = 0
         for (attempt in attempts) {
+            attemptsUsed++
             next = tryConfigure(mime, csd, surface, attempt)
             if (next != null) break
         }
+        report("decoder_configure stream=$streamType mime=$mime size=${width}x$height " +
+            "elapsedMs=${(System.nanoTime() - configureStartedAtNanos).coerceAtLeast(0L) / 1_000_000L} " +
+            "success=${next != null} attempts=$attemptsUsed")
         if (next == null) {
             report("decoder configuration failed mime=$mime size=${width}x$height")
         }

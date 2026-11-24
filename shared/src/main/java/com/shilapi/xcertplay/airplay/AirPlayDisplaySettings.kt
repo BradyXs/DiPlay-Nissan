@@ -14,10 +14,8 @@ data class AirPlayPhysicalSizeMm(
 object AirPlayDisplaySettings {
     const val MIN_FPS = 30
     const val MAX_FPS = 60
-    const val MIN_ADAPTIVE_FPS = 15
     const val FPS_STEP = 5
     const val DEFAULT_FPS = MAX_FPS
-    val ADAPTIVE_FPS_STEPS = listOf(15, 20, 24, 25, 30)
 
     const val MIN_WIDTH_PHYSICAL_MM = 100
     const val MAX_WIDTH_PHYSICAL_MM = 400
@@ -29,10 +27,6 @@ object AirPlayDisplaySettings {
 
     fun sanitizeFps(value: Int): Int =
         snapToStep(value, MIN_FPS, MAX_FPS, FPS_STEP)
-
-    /** Preserve Nissan's adaptive rates while keeping the manual 30–60 fps choices unchanged. */
-    fun sanitizeAdvertisedFps(value: Int): Int =
-        if (value in ADAPTIVE_FPS_STEPS) value else sanitizeFps(value)
 
     fun sanitizeWidthPhysicalMm(value: Int): Int =
         snapToStep(

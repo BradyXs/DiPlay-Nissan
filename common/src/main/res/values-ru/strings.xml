@@ -485,7 +485,6 @@
     <string name="settings_car_bluetooth_mac_invalid">Пожалуйста, введите корректный 12-значный шестнадцатеричный MAC-адрес.</string>
     <string name="settings_detailed_diagnostics_title">Подробные диагностические журналы</string>
     <string name="settings_detailed_diagnostics_description">Записывает частые данные о видео и беспроводной связи, а также текст навигации на Nissan. При обычном использовании оставляйте выключенным. Сбои и зависания записываются всегда.</string>
-    <string name="settings_adaptive_frame_rate">Адаптивно 15–30 кадр/с · со следующего подключения</string>
 
 
 

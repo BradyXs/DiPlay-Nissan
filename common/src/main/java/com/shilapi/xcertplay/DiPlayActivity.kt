@@ -82,7 +82,7 @@ internal const val AUTOMATIC_CONNECTION_EXTRA = "com.shilapi.xcertplay.extra.AUT
 internal const val CONNECTION_REQUESTED_AT_EXTRA = "com.shilapi.xcertplay.extra.CONNECTION_REQUESTED_AT"
 
 /** DiAuto's visual language, with a connection flow for an independent CarPlay receiver. */
-class DiPlayActivity : ComponentActivity() {
+open class DiPlayActivity : ComponentActivity() {
     private val handler = Handler(Looper.getMainLooper())
     private val automaticConnection by lazy(LazyThreadSafetyMode.NONE) {
         AutomaticConnectionCoordinator(
@@ -215,6 +215,8 @@ class DiPlayActivity : ComponentActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        // Let Android show the branded launch window, then use the regular app theme for views.
+        setTheme(R.style.Theme_Xcertplay)
         super.onCreate(savedInstanceState)
         NissanPhoneKeyProbe.ensureEnabled(this)
         autoConnectAfterBootRequested = intent.getBooleanExtra(AUTO_CONNECT_AFTER_BOOT_EXTRA, false)
@@ -234,6 +236,13 @@ class DiPlayActivity : ComponentActivity() {
             openProjection()
             finish()
             return
+        }
+        if (nissanAndroid44Profile && (initialPage == null || initialPage == "home") &&
+            !CarPlayBackgroundSession.hasSession()
+        ) {
+            // Begin offline identity preparation before density, Bluetooth and settings setup so
+            // a quick Connect tap can overlap more of the cold MFi work with home-page startup.
+            DiPlayBootstrap.prewarmLocalIdentity(applicationContext, AirPlayPersistence.loadMfiTarget(this))
         }
         val localeAndSizeStartedAtNs = SystemClock.elapsedRealtimeNanos()
         enforceInterfaceSize()
@@ -814,6 +823,12 @@ class DiPlayActivity : ComponentActivity() {
             page == "settings" && intent.getBooleanExtra(SETTINGS_FROM_CARPLAY_EXTRA, false) &&
                 CarPlayBackgroundSession.hasSession() -> {
                 intent.removeExtra(SETTINGS_FROM_CARPLAY_EXTRA)
+                if (this is CarPlaySettingsActivity) {
+                    UiPageDiagnostics.log("UI_NAV action=finish-carplay-settings return=previous-activity")
+                    finish()
+                    overridePendingTransition(0, 0)
+                    return
+                }
                 page = "home"
                 openProjection()
                 return
@@ -1338,23 +1353,16 @@ class DiPlayActivity : ComponentActivity() {
             card.addView(scheduleControls)
             if (nissanAndroid44Profile) carPlaySizeControl(card) else physicalDisplaySettings(card)
             carPlayDockControl(card)
-            resolutionSettingControl(
-                card, R.string.resolution, R.string.custom_resolution_hint,
-                CarPlayDisplayScale.MIN_PERCENT..CarPlayDisplayScale.MAX_PERCENT, 100,
-                R.string.custom_resolution_summary,
-                { AirPlayPersistence.loadDisplayScalePercent(this) }, reconnects = true,
-                save = { AirPlayPersistence.saveDisplayScalePercent(this, it) },
-            )
-            val frameRates = if (nissanAndroid44Profile) listOf(30, 60, AirPlayPersistence.ADAPTIVE_FPS) else listOf(30, 60)
+            resolutionSliderControl(card)
+            val frameRates = listOf(30, 60)
             val frameRateLabels = frameRates.map {
                 getString(when (it) {
-                    AirPlayPersistence.ADAPTIVE_FPS -> R.string.settings_adaptive_frame_rate
                     60 -> R.string.s_60_fps_smoother_motion
                     else -> R.string.s_30_fps_lighter_load
                 })
             }
             choice(card, getString(R.string.frame_rate), frameRateLabels,
-                frameRates.indexOf(AirPlayPersistence.loadFpsMode(this)).coerceAtLeast(0),
+                frameRates.indexOf(AirPlayPersistence.loadFps(this)).coerceAtLeast(0),
                 reconnects = !nissanAndroid44Profile,
             ) {
                 AirPlayPersistence.saveFps(this, frameRates[it])
@@ -1922,6 +1930,34 @@ class DiPlayActivity : ComponentActivity() {
         AlertDialog.Builder(this).setTitle(title).setView(input)
             .setPositiveButton(getString(R.string.save)) { _, _ -> save(input.text.toString().let { if (secret) it else it.trim() }) }
             .setNegativeButton(getString(R.string.cancel), null).show()
+    }
+
+    private fun resolutionSliderControl(parent: LinearLayout) {
+        val initial = AirPlayPersistence.loadDisplayScalePercent(this)
+        var latestPercent = initial
+        fun saveIfChanged(value: Int) {
+            val normalized = value.coerceIn(CarPlayDisplayScale.MIN_PERCENT, CarPlayDisplayScale.MAX_PERCENT)
+            if (normalized == AirPlayPersistence.loadDisplayScalePercent(this)) return
+            AirPlayPersistence.saveDisplayScalePercent(this, normalized)
+            markReconnectNeeded()
+        }
+
+        val slider = SettingsWidgets.createResolutionSlider(
+            context = this,
+            initialPercent = initial,
+            theme = SettingsTheme.CARD,
+            onPercentChanged = { latestPercent = it },
+            onTrackingStopped = ::saveIfChanged,
+        )
+        // Keep keyboard and accessibility adjustments persistent too; touch drags are saved
+        // when tracking ends, so preferences are not written for every movement event.
+        slider.seekBar.setOnFocusChangeListener { _, hasFocus ->
+            if (!hasFocus) saveIfChanged(latestPercent)
+        }
+        parent.addView(slider.container)
+        parent.addView(label(getString(R.string.custom_resolution_hint), 14, MUTED).apply {
+            setPadding(0, 0, 0, dp(18))
+        })
     }
 
     private fun resolutionSettingControl(

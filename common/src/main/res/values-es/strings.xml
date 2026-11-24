@@ -485,7 +485,6 @@
     <string name="settings_car_bluetooth_mac_invalid">Introduce una dirección MAC hexadecimal válida de 12 dígitos.</string>
     <string name="settings_detailed_diagnostics_title">Registros de diagnóstico detallados</string>
     <string name="settings_detailed_diagnostics_description">Registra los tiempos de vídeo y conexión inalámbrica, además del texto de navegación en Nissan. Déjelo desactivado normalmente. Los fallos y las interrupciones se siguen registrando.</string>
-    <string name="settings_adaptive_frame_rate">Adaptativa 15–30 fps · próxima conexión</string>
 
 
 

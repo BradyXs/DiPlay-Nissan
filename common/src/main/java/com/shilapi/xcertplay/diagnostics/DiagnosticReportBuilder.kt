@@ -44,12 +44,7 @@ internal object DiagnosticReportBuilder {
                 "authentication unavailable"
             }
             appendLine("CarPlay setup: $setupSummary")
-            val savedFpsMode = AirPlayPersistence.loadFpsMode(appContext)
-            val savedFpsLabel = if (nissanAndroid44Profile && savedFpsMode == AirPlayPersistence.ADAPTIVE_FPS) {
-                "adaptive 15–30 fps"
-            } else {
-                "${AirPlayPersistence.loadFps(appContext)} fps"
-            }
+            val savedFpsLabel = "${AirPlayPersistence.loadFps(appContext)} fps"
             appendLine("Saved video preference (may differ from active session): ${if (AirPlayPersistence.loadHevcEnabled(appContext)) "HEVC" else "H.264"}; $savedFpsLabel")
             appendLine("CarPlay size: ${CarPlaySize.fromWidthMillimeters(AirPlayPersistence.loadWidthPhysicalMm(appContext)).label}")
             appendLine("Saved resolution preference (may differ from active session): ${AirPlayPersistence.loadDisplayScalePercent(appContext)}%")

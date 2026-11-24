@@ -75,7 +75,6 @@ object AirPlayPersistence {
     private const val KEY_CARPLAY_NIGHT_END = "carplay_night_end_minute"
     private const val KEY_AMBIENT_LUX_THRESHOLD = "ambient_lux_threshold"
     private const val KEY_FPS = "display_fps"
-    const val ADAPTIVE_FPS = 0
     private const val KEY_MEDIA_BUFFER_MS = "media_buffer_ms"
     private const val KEY_MAIN_BUFFERED_AUDIO = "main_buffered_audio"
     private const val KEY_CALL_ECHO_CANCELLATION = "call_echo_cancellation"
@@ -624,15 +623,16 @@ object AirPlayPersistence {
             .apply()
     }
 
-    fun loadFps(context: Context): Int = AirPlayDisplaySettings.sanitizeFps(loadFpsMode(context))
-
-    fun loadFpsMode(context: Context): Int {
-        val saved = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getInt(KEY_FPS, 30)
-        return if (saved == ADAPTIVE_FPS && com.shilapi.xcertplay.host.BuildConfig.NISSAN_ANDROID_44_PROFILE) {
-            ADAPTIVE_FPS
-        } else {
-            AirPlayDisplaySettings.sanitizeFps(saved)
+    fun loadFps(context: Context): Int {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val saved = prefs.getInt(KEY_FPS, 30)
+        val fixedFps = AirPlayDisplaySettings.sanitizeFps(saved)
+        if (saved != fixedFps) {
+            // Older versions stored 0 for adaptive mode. CarPlay uses a fixed negotiated rate,
+            // so migrate that value (and any obsolete intermediate rate) to the 30 fps floor.
+            prefs.edit().putInt(KEY_FPS, fixedFps).apply()
         }
+        return fixedFps
     }
 
     fun loadMediaBufferMillis(context: Context): Int = com.shilapi.xcertplay.media.MediaAudioBuffer.sanitize(
@@ -695,7 +695,7 @@ object AirPlayPersistence {
 
     fun saveFps(context: Context, fps: Int) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-            .putInt(KEY_FPS, if (fps == ADAPTIVE_FPS) fps else AirPlayDisplaySettings.sanitizeFps(fps))
+            .putInt(KEY_FPS, AirPlayDisplaySettings.sanitizeFps(fps))
             .apply()
     }
 

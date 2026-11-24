@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="custom_resolution_hint">請輸入 30–160 的百分比，套用後重新連接 CarPlay。</string>
+    <string name="custom_resolution_hint">拖曳設定 30%–160% 的顯示比例；重新連接 CarPlay 後生效。</string>
     <string name="resolution_number_error">請輸入 %1$d–%2$d 的整數。</string>
     <string name="custom_resolution_summary">%1$d%%</string>
     <string name="resolution_reset_defaults">回復預設值</string>

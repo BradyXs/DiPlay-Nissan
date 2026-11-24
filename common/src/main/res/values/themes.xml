@@ -5,6 +5,10 @@
         <item name="android:alertDialogTheme">@style/Theme.Xcertplay.Dialog</item>
         <item name="android:windowActionModeOverlay">true</item>
     </style>
+    <style name="Theme.Xcertplay.Launcher" parent="Theme.Xcertplay">
+        <item name="android:windowBackground">@drawable/bg_diplay_splash</item>
+        <item name="android:windowFullscreen">true</item>
+    </style>
     <style name="Theme.Xcertplay.Dialog" parent="android:style/Theme.Holo.Dialog">
         <item name="android:windowBackground">@drawable/bg_dp_dialog</item>
         <item name="android:alertDialogStyle">@style/Theme.Xcertplay.AlertPanel</item>

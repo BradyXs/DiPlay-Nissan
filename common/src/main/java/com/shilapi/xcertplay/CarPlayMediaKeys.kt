@@ -46,6 +46,14 @@ import kotlin.math.roundToInt
  * HID presses ([CarPlayMediaButton]).
  */
 internal object CarPlayMediaKeys {
+    private data class ClusterMetadataSummary(
+        val mode: Int,
+        val title: String?,
+        val detail: String?,
+        val artist: String?,
+        val lanePresent: Boolean = false,
+    )
+
     private const val TAG = "DiPlay-MediaKeys"
     private const val ACTIONS = PlaybackState.ACTION_PLAY or PlaybackState.ACTION_PAUSE or
         PlaybackState.ACTION_PLAY_PAUSE or PlaybackState.ACTION_SKIP_TO_NEXT or PlaybackState.ACTION_SKIP_TO_PREVIOUS
@@ -78,7 +86,11 @@ internal object CarPlayMediaKeys {
     private var reconnectPlaybackHintAtMs = 0L
     private val routeGuidance = CarPlayRouteGuidance()
     private val clusterRouteDisplay = NissanClusterRouteDisplay()
+    private var lastClusterMetadataSummary: ClusterMetadataSummary? = null
     private var clusterRouteEnd: Runnable? = null
+    private var clusterVehicleSpeedSource: NissanClusterVehicleSpeedSource? = null
+    private var clusterVehicleSpeedMonitoring = false
+    private var clusterVehicleSpeedKmh: Int? = null
     private var navigationSequence = 0L
     private var elapsedUpdatedAt = 0L
     private var artwork: Bitmap? = null
@@ -103,6 +115,13 @@ internal object CarPlayMediaKeys {
         }
         appContext = context.applicationContext
         controller = next
+        if (com.shilapi.xcertplay.host.BuildConfig.NISSAN_ANDROID_44_PROFILE &&
+            clusterVehicleSpeedSource == null
+        ) {
+            clusterVehicleSpeedSource = NissanClusterVehicleSpeedSource(context.applicationContext) {
+                onClusterVehicleSpeedChanged(it)
+            }
+        }
         next.seedReconnectPlaybackHint(playbackHint)
         if (com.shilapi.xcertplay.host.BuildConfig.NISSAN_ANDROID_44_PROFILE) {
             NissanClusterMetadataPublisher.start(::diagnostic)
@@ -230,15 +249,49 @@ internal object CarPlayMediaKeys {
                         synchronized(this) {
                             if (controller === expected) {
                                 clusterRouteEnd = null
-                                publishNissanDashboardLocked(clusterRouteDisplay.current(SystemClock.elapsedRealtime()))
+                                val displayedRoute = clusterRouteDisplay.current(SystemClock.elapsedRealtime())
+                                updateClusterVehicleSpeedPollingLocked(displayedRoute)
+                                publishNissanDashboardLocked(displayedRoute)
                             }
                         }
                     }
                     clusterRouteEnd = runnable
                     mainHandler.postDelayed(runnable, delay)
                 }
-                publishNissanDashboardLocked(clusterRouteDisplay.current(now))
+                val displayedRoute = clusterRouteDisplay.current(now)
+                updateClusterVehicleSpeedPollingLocked(displayedRoute)
+                publishNissanDashboardLocked(displayedRoute)
             }
+        }
+    }
+
+    private fun updateClusterVehicleSpeedPollingLocked(route: CarPlayRouteSnapshot) {
+        if (!com.shilapi.xcertplay.host.BuildConfig.NISSAN_ANDROID_44_PROFILE) return
+        val source = clusterVehicleSpeedSource ?: return
+        if (route.active && !clusterVehicleSpeedMonitoring) {
+            clusterVehicleSpeedMonitoring = true
+            clusterVehicleSpeedKmh = null
+            diagnostic("Cluster vehicle speed polling started")
+            source.start()
+        } else if (!route.active && clusterVehicleSpeedMonitoring) {
+            clusterVehicleSpeedMonitoring = false
+            source.stop()
+            if (clusterVehicleSpeedKmh != null) {
+                clusterVehicleSpeedKmh = null
+                diagnostic("Cluster vehicle speed cleared reason=navigation-ended")
+            }
+        }
+    }
+
+    private fun onClusterVehicleSpeedChanged(speedKmh: Int?) {
+        synchronized(this) {
+            if (!clusterVehicleSpeedMonitoring || controller == null ||
+                !clusterRouteDisplay.current(SystemClock.elapsedRealtime()).active ||
+                clusterVehicleSpeedKmh == speedKmh
+            ) return
+            clusterVehicleSpeedKmh = speedKmh
+            diagnostic("Cluster vehicle speed ${speedKmh?.let { "kmh=$it" } ?: "unavailable"}")
+            publishNissanDashboardLocked(clusterRouteDisplay.current(SystemClock.elapsedRealtime()))
         }
     }
 
@@ -262,26 +315,53 @@ internal object CarPlayMediaKeys {
     private fun publishNissanDashboardLocked(route: CarPlayRouteSnapshot) {
         if (!com.shilapi.xcertplay.host.BuildConfig.NISSAN_ANDROID_44_PROFILE) return
         if (route.active) {
-            val lines = NissanClusterNavigationFormatter.format(route)
-            diagnostic("Navigation metadata display mode=navigation titleChars=${lines.title.length} " +
-                "detailChars=${lines.detail.length} maneuverPresent=${route.nextManeuver != null} " +
-                "lanePresent=${!route.laneDescription.isNullOrBlank()}")
+            val speedKmh = clusterVehicleSpeedKmh
+            val lines = NissanClusterNavigationFormatter.format(route, speedKmh)
+            val lanePresent = !route.laneDescription.isNullOrBlank()
+            val summary = ClusterMetadataSummary(
+                mode = NissanClusterMetadataPublisher.MODE_NAVIGATION,
+                title = lines.title,
+                detail = lines.detail,
+                artist = null,
+                lanePresent = lanePresent,
+            )
+            if (lastClusterMetadataSummary != summary) {
+                lastClusterMetadataSummary = summary
+                diagnostic("Navigation metadata display mode=navigation titleChars=${lines.title.length} " +
+                    "detailChars=${lines.detail.length} maneuverPresent=${route.nextManeuver != null} " +
+                    "maneuverType=${route.nextManeuver?.type ?: "none"} " +
+                    "vehicleSpeedKmh=${speedKmh ?: "unavailable"} lanePresent=$lanePresent detailField=artist")
+            }
             NissanClusterMetadataPublisher.publish(
                 mode = NissanClusterMetadataPublisher.MODE_NAVIGATION,
                 title = lines.title,
-                album = lines.detail,
-                artist = "",
+                // The tested Nissan cluster did not render the detail when sent in album.
+                // Route it through artist (MCU field 8) for the next display-field check.
+                album = "",
+                artist = lines.detail,
                 onResult = navigationResultLogger(lines.title, lines.detail),
             )
         } else {
-            diagnostic("Navigation metadata display mode=media trackTitlePresent=${!nowPlaying.title.isNullOrBlank()} " +
-                "artistPresent=${!nowPlaying.artist.isNullOrBlank()} albumPresent=${!nowPlaying.album.isNullOrBlank()}")
+            val title = nowPlaying.title
+            val secondLine = nowPlaying.artist?.takeIf { it.isNotBlank() } ?: nowPlaying.album
+            val summary = ClusterMetadataSummary(
+                mode = NissanClusterMetadataPublisher.MODE_MEDIA,
+                title = title,
+                detail = secondLine,
+                artist = nowPlaying.artist,
+            )
+            if (lastClusterMetadataSummary != summary) {
+                lastClusterMetadataSummary = summary
+                diagnostic("Navigation metadata display mode=media trackTitlePresent=${!title.isNullOrBlank()} " +
+                    "artistPresent=${!nowPlaying.artist.isNullOrBlank()} " +
+                    "albumPresent=${!nowPlaying.album.isNullOrBlank()}")
+            }
             NissanClusterMetadataPublisher.publish(
                 mode = NissanClusterMetadataPublisher.MODE_MEDIA,
-                title = nowPlaying.title,
+                title = title,
                 // The Nissan cluster's second line uses the album field. Prefer the artist,
                 // matching car-dash-x, and retain album when the artist is unavailable.
-                album = nowPlaying.artist?.takeIf { it.isNotBlank() } ?: nowPlaying.album,
+                album = secondLine,
                 artist = nowPlaying.artist,
             )
         }
@@ -424,9 +504,13 @@ internal object CarPlayMediaKeys {
     private fun releaseLocked() {
         NissanClusterMetadataPublisher.clear()
         NissanVolumeSessionClient.stop()
+        clusterVehicleSpeedSource?.stop()
+        clusterVehicleSpeedMonitoring = false
+        clusterVehicleSpeedKmh = null
         clusterRouteEnd?.let(mainHandler::removeCallbacks)
         clusterRouteEnd = null
         clusterRouteDisplay.clear()
+        lastClusterMetadataSummary = null
         focusOwner = null
         artworkOwner = null
         artworkQueue.clear()

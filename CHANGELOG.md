@@ -1,5 +1,15 @@
 # Changelog
 
+## DiPlay-Nissan 0.2.80
+
+- Fall back to the iAP2 maneuver type when navigation text only contains a road name, so turn arrows are still shown.
+- Read the Nissan vehicle-speed signal only while route guidance is active and include valid speed in the cluster's second line.
+
+## DiPlay-Nissan 0.2.79
+
+- Send Nissan cluster navigation detail through the artist field and prefer remaining distance/time for the second line.
+- Use the supplied Nissan/CarPlay launch design as the static startup screen.
+
 ## DiPlay-Nissan 0.2.78
 
 - Recheck wired VPN preparation when Android returns no TUN, request consent when needed and stop automatic retries after one unsuccessful recovery.

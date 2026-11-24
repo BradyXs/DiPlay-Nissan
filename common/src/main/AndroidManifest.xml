@@ -48,12 +48,18 @@
             android:exported="true" android:launchMode="singleTop"
             android:resizeableActivity="true"
             android:configChanges="density|keyboardHidden|orientation|screenLayout|screenSize|smallestScreenSize|uiMode"
-            android:theme="@style/Theme.Xcertplay">
+            android:theme="@style/Theme.Xcertplay.Launcher">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <activity
+            android:name="com.shilapi.xcertplay.CarPlaySettingsActivity"
+            android:exported="false"
+            android:resizeableActivity="true"
+            android:configChanges="density|keyboardHidden|orientation|screenLayout|screenSize|smallestScreenSize|uiMode"
+            android:theme="@style/Theme.Xcertplay" />
         <service android:name="com.shilapi.xcertplay.DiPlaySessionService"
             android:exported="false"
             android:permission="${applicationId}.permission.READ_CARPLAY_SESSION"

@@ -52,17 +52,39 @@ class LocalMfiAuthenticationClient private constructor(
         // without replacing the system's providers.
         private val cryptoProvider by lazy { BouncyCastleProvider() }
 
-        fun load(directory: File, onSignature: (Int) -> Unit = {}): LocalMfiAuthenticationClient {
-            require(directory.isDirectory) { "Offline MFi directory is missing or invalid" }
-            val encodedKey = readBounded(File(directory, "identity.pk8"))
+        fun load(directory: File): LocalMfiAuthenticationClient = load(directory, {}, { _, _ -> })
+
+        fun load(
+            directory: File,
+            onSignature: (Int) -> Unit,
+        ): LocalMfiAuthenticationClient = load(directory, onSignature, { _, _ -> })
+
+        fun load(
+            directory: File,
+            onSignature: (Int) -> Unit,
+            onTiming: (stage: String, elapsedMs: Long) -> Unit,
+        ): LocalMfiAuthenticationClient {
+            require(timed("directory-check", onTiming) { directory.isDirectory }) {
+                "Offline MFi directory is missing or invalid"
+            }
+            val provider = timed("provider-init", onTiming) { cryptoProvider }
+            val encodedKey = timed("private-key-read", onTiming) {
+                readBounded(File(directory, "identity.pk8"))
+            }
             val privateKey = try {
-                KeyFactory.getInstance("EC", cryptoProvider).generatePrivate(PKCS8EncodedKeySpec(encodedKey))
+                timed("private-key-parse", onTiming) {
+                    KeyFactory.getInstance("EC", provider).generatePrivate(PKCS8EncodedKeySpec(encodedKey))
+                }
             } finally {
                 encodedKey.fill(0)
             }
-            val certificate = readBounded(File(directory, "certificate.p7b"))
-            val certificates = CertificateFactory.getInstance("X.509", cryptoProvider)
-                .generateCertificates(certificate.inputStream())
+            val certificate = timed("certificate-read", onTiming) {
+                readBounded(File(directory, "certificate.p7b"))
+            }
+            val certificates = timed("certificate-parse", onTiming) {
+                CertificateFactory.getInstance("X.509", provider)
+                    .generateCertificates(certificate.inputStream())
+            }
             require(certificates.size == 1) { "Expected one accessory certificate" }
             val publicKey = certificates.single().publicKey as? ECPublicKey
                 ?: error("Expected an EC accessory certificate")
@@ -70,16 +92,40 @@ class LocalMfiAuthenticationClient private constructor(
                 "ffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551") {
                 "Expected a P-256 accessory certificate"
             }
-            val challenge = ByteArray(32).also(SecureRandom()::nextBytes)
-            val signer = Signature.getInstance("NONEwithECDSA", cryptoProvider)
-            signer.initSign(privateKey)
-            signer.update(challenge)
-            val signature = signer.sign()
-            val verifier = Signature.getInstance("NONEwithECDSA", cryptoProvider)
-            verifier.initVerify(publicKey)
-            verifier.update(challenge)
-            require(verifier.verify(signature)) { "Local private key does not match certificate" }
+            val challenge = timed("secure-random", onTiming) {
+                ByteArray(32).also(SecureRandom()::nextBytes)
+            }
+            val signature = timed("private-key-self-test-sign", onTiming) {
+                Signature.getInstance("NONEwithECDSA", provider).run {
+                    initSign(privateKey)
+                    update(challenge)
+                    sign()
+                }
+            }
+            val verified = timed("certificate-self-test-verify", onTiming) {
+                Signature.getInstance("NONEwithECDSA", provider).run {
+                    initVerify(publicKey)
+                    update(challenge)
+                    verify(signature)
+                }
+            }
+            require(verified) { "Local private key does not match certificate" }
             return LocalMfiAuthenticationClient(privateKey, certificate, onSignature)
+        }
+
+        private inline fun <T> timed(
+            stage: String,
+            onTiming: (stage: String, elapsedMs: Long) -> Unit,
+            block: () -> T,
+        ): T {
+            val startedAtNs = System.nanoTime()
+            return try {
+                block()
+            } finally {
+                runCatching {
+                    onTiming(stage, (System.nanoTime() - startedAtNs).coerceAtLeast(0L) / 1_000_000L)
+                }
+            }
         }
 
         private fun readBounded(file: File): ByteArray = file.inputStream().use { stream ->

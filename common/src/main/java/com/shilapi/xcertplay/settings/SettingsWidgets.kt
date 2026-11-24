@@ -299,6 +299,7 @@ object SettingsWidgets {
         initialPercent: Int,
         theme: SettingsTheme = SettingsTheme.OVERLAY,
         onPercentChanged: (Int) -> Unit,
+        onTrackingStopped: ((Int) -> Unit)? = null,
     ): ResolutionSliderResult {
         val initial = initialPercent.coerceIn(CarPlayDisplayScale.MIN_PERCENT, CarPlayDisplayScale.MAX_PERCENT)
         val container = LinearLayout(context).apply {
@@ -351,7 +352,11 @@ object SettingsWidgets {
                     }
 
                     override fun onStartTrackingTouch(sb: SeekBar) = Unit
-                    override fun onStopTrackingTouch(sb: SeekBar) = Unit
+                    override fun onStopTrackingTouch(sb: SeekBar) {
+                        val percent = (CarPlayDisplayScale.MIN_PERCENT + sb.progress)
+                            .coerceIn(CarPlayDisplayScale.MIN_PERCENT, CarPlayDisplayScale.MAX_PERCENT)
+                        onTrackingStopped?.invoke(percent)
+                    }
                 },
             )
         }

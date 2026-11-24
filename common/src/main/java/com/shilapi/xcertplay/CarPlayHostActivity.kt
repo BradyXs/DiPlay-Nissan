@@ -87,7 +87,6 @@ import com.shilapi.xcertplay.airplay.SafeAreaRect
 import com.shilapi.xcertplay.host.R
 import com.shilapi.xcertplay.location.AndroidCarPlayLocationProvider
 import com.shilapi.xcertplay.media.AndroidMediaSink
-import com.shilapi.xcertplay.media.NissanVideoFrameRate
 import com.shilapi.xcertplay.media.CarPlayTouchMapper
 import com.shilapi.xcertplay.media.CarPlayVideoLayout
 import com.shilapi.xcertplay.network.CarPlayVpnService
@@ -354,6 +353,7 @@ class CarPlayHostActivity : ComponentActivity() {
     private var connectionProgressFailed = false
     private var waitingGlow: View? = null
     private var waitingGlowAnimator: ObjectAnimator? = null
+    private var projectionRestoreOverlay: View? = null
     private var darkMode = false
     private var paintWaitingScreen: () -> Unit = {}
     private var carPlayNightMode = CarPlayNightMode.SYSTEM
@@ -1367,7 +1367,30 @@ class CarPlayHostActivity : ComponentActivity() {
         paintWaitingScreen()
         viewport.addView(panel, FrameLayout.LayoutParams(-1, -2, Gravity.CENTER))
         root.addView(viewport, FrameLayout.LayoutParams(-1, -1))
-        // Above the video and gesture layer, below the menus.
+        projectionRestoreOverlay = FrameLayout(this).apply {
+            setBackgroundColor(Color.rgb(0x12, 0x15, 0x1B))
+            visibility = View.GONE
+            isClickable = true
+            val content = LinearLayout(this@CarPlayHostActivity).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER
+                addView(ImageView(this@CarPlayHostActivity).apply {
+                    setImageResource(R.drawable.ic_carplay)
+                    contentDescription = getString(R.string.carplay)
+                }, LinearLayout.LayoutParams(dp(88), dp(88)))
+                addView(TextView(this@CarPlayHostActivity).apply {
+                    text = getString(R.string.getting_carplay_ready)
+                    textSize = 20f
+                    setTextColor(Color.WHITE)
+                    gravity = Gravity.CENTER
+                    setPadding(0, dp(20), 0, 0)
+                })
+            }
+            addView(content, FrameLayout.LayoutParams(-2, -2, Gravity.CENTER))
+        }
+        root.addView(projectionRestoreOverlay, FrameLayout.LayoutParams(-1, -1))
+        // The waiting panel sits above video; the restore overlay is only shown while a reused
+        // CarPlay session is waiting for the first frame on a newly created surface.
         var preparationHeight = -1
         fun updatePreparationLayout() {
             val height = viewport.height - viewport.paddingTop - viewport.paddingBottom
@@ -1872,7 +1895,6 @@ class CarPlayHostActivity : ComponentActivity() {
         videoWidth: Int,
         videoHeight: Int,
         videoFps: Int,
-        frameRateSession: NissanVideoFrameRate.Session?,
         controllerGeneration: Int,
     ): AndroidMediaSink {
         // Capture this session's log: late decoder shutdown must not write into a new session.
@@ -1936,20 +1958,6 @@ class CarPlayHostActivity : ComponentActivity() {
             pauseVideoWhenSurfaceAbsent = com.shilapi.xcertplay.host.BuildConfig.NISSAN_ANDROID_44_PROFILE,
             // Only a SurfaceView honours release timestamps; smooth video always selects one.
             videoPacingDelayMillis = if (smoothVideo) smoothVideoDelayMillis(videoFps) else 0,
-            onMainVideoPlaybackWindow = frameRateSession?.let { rate ->
-                { window ->
-                    val nextFps = rate.observe(window)
-                    if (nextFps != null) {
-                        AsyncDiagnosticLog.append(diagnosticLog,
-                            "VIDEO_FPS adaptive current=${rate.fps} next=$nextFps " +
-                                "rx=${window.inputFps.toInt()} queueP90Ms=${window.queueP90Millis} " +
-                                "decodeP90Ms=${window.decodeP90Millis} " +
-                                "inputWaitP90Ms=${window.inputWaitP90Millis} recoveries=${window.recoveries} " +
-                                "decodePercent=${(window.decodedFraction * 100).toInt()} " +
-                                "shownPercent=${(window.shownFraction * 100).toInt()}")
-                    }
-                }
-            },
             onMainVideoFrameInput = { onMainVideoFrameInput(controllerGeneration) },
             allowFirstFrameGrace = com.shilapi.xcertplay.host.BuildConfig.NISSAN_ANDROID_44_PROFILE && wirelessEnabled,
         )
@@ -2252,17 +2260,7 @@ class CarPlayHostActivity : ComponentActivity() {
         val configStartedAtNs = SystemClock.elapsedRealtimeNanos()
         val effectiveSize = size
         val initialAirPlayConfig = createAirPlayConfig(effectiveSize)
-        val main = initialAirPlayConfig.main
-        val frameRateSession = if (AirPlayPersistence.loadFpsMode(this) == AirPlayPersistence.ADAPTIVE_FPS) {
-            adaptiveFrameRate.begin(NissanVideoFrameRate.Profile(
-                wirelessEnabled, main.widthPixels, main.heightPixels, initialAirPlayConfig.hevc,
-                initialAirPlayConfig.hevc && hevcSoftwareDecoderEnabled,
-            ))
-        } else null
-        val airPlayConfig = if (frameRateSession != null) {
-            appendLog("VIDEO_FPS adaptive sessionCeiling=${frameRateSession.fps} transport=${config.transport}")
-            initialAirPlayConfig.copy(main = main.copy(fps = frameRateSession.fps))
-        } else initialAirPlayConfig
+        val airPlayConfig = initialAirPlayConfig
         UiPageDiagnostics.log(
             "UI_STARTUP stage=carplay-config-total " +
                 "elapsedMs=${(SystemClock.elapsedRealtimeNanos() - configStartedAtNs) / 1_000_000L} thread=main",
@@ -2296,7 +2294,6 @@ class CarPlayHostActivity : ComponentActivity() {
             videoWidth = airPlayConfig.main.widthPixels,
             videoHeight = airPlayConfig.main.heightPixels,
             videoFps = airPlayConfig.main.fps,
-            frameRateSession = frameRateSession,
             controllerGeneration = controllerGeneration,
         )
         CarPlayBackgroundSession.markSessionInactive()
@@ -2751,11 +2748,26 @@ class CarPlayHostActivity : ComponentActivity() {
 
     private fun showDiPlayHome(page: String = "home", category: SettingsCategory? = null) {
         controller?.sendTouch(emptyList())
-        startActivity(Intent(this, DiPlayActivity::class.java)
+        val targetActivity = if (page == "settings" &&
+            com.shilapi.xcertplay.host.BuildConfig.NISSAN_ANDROID_44_PROFILE
+        ) {
+            CarPlaySettingsActivity::class.java
+        } else {
+            DiPlayActivity::class.java
+        }
+        val intent = Intent(this, targetActivity)
             .putExtra("page", page)
             .putExtra(SETTINGS_FROM_CARPLAY_EXTRA, page == "settings")
             .apply { category?.let { putExtra(SETTINGS_CATEGORY_EXTRA, it.name) } }
-            .addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT))
+        if (targetActivity == CarPlaySettingsActivity::class.java) {
+            // Keep Settings directly above this host in the same task. Its final Back now
+            // finishes to the preserved projection instead of routing through DiPlay home.
+            intent.addFlags(Intent.FLAG_ACTIVITY_NO_ANIMATION)
+        } else {
+            intent.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+        }
+        startActivity(intent)
+        if (targetActivity == CarPlaySettingsActivity::class.java) overridePendingTransition(0, 0)
     }
 
     /** Leave the projection for the vehicle's launcher while keeping its session alive in background. */
@@ -3097,7 +3109,7 @@ class CarPlayHostActivity : ComponentActivity() {
         "${Build.FINGERPRINT}|${size.width}x${size.height}|" +
             "${if (wirelessEnabled) "wireless" else "wired"}|" +
             "${if (hevcEnabled) "hevc" else "h264"}|${hevcSoftwareDecoderEnabled}|" +
-            "${AirPlayPersistence.loadFpsMode(this)}|$fps|$requestedPercent"
+            "${AirPlayPersistence.loadFps(this)}|$requestedPercent"
 
     private fun recordFirstFrameRendered(generation: Int, session: AirPlaySession) {
         clearFirstFrameRecoveryWatchdog()
@@ -3170,6 +3182,9 @@ class CarPlayHostActivity : ComponentActivity() {
 
     private fun updateDebugOverlays() {
         statusScrollView?.visibility = View.GONE
+        val restoringRenderedSession = CarPlayBackgroundSession.active &&
+            CarPlayBackgroundSession.hasRenderedVideoFrame && !visibleVideoFrameReleased
+        projectionRestoreOverlay?.visibility = if (restoringRenderedSession) View.VISIBLE else View.GONE
         val returningToRenderedSession =
             projectionRestorePending ||
                 (CarPlayBackgroundSession.active && CarPlayBackgroundSession.hasRenderedVideoFrame)
@@ -3380,7 +3395,6 @@ class CarPlayHostActivity : ComponentActivity() {
     }
 
     private companion object {
-        val adaptiveFrameRate = NissanVideoFrameRate()
         const val TAG = "xcertplay-usb"
         const val SCREEN_TYPE_MAIN = 110
         const val SCREEN_TYPE_ALT = 111
